@@ -69,7 +69,7 @@ docker image prune -f
 | Binding | Action |
 |---------|--------|
 | `CTRL-X CTRL-S` | Save current command line as a new snippet |
-| `CTRL-X CTRL-R` | Open fzf to search and select a snippet |
+| `CTRL-X CTRL-X` | Open fzf to search and select a snippet |
 
 ### During fzf selection
 
@@ -92,7 +92,7 @@ docker image prune -f
 7. On save, if `# name:` was changed, rename/move file accordingly
 8. Confirm with full path: `Saved: ~/.local/zsh-snip/git-3`
 
-### Searching snippets (CTRL-X CTRL-R)
+### Searching snippets (CTRL-X CTRL-X)
 
 1. Search all snippet files by description and command content
 2. Display in fzf:

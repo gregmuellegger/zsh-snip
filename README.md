@@ -62,7 +62,7 @@ E.g. change to something like `node-shell` or `docker/node-shell`
 
 ### Find a snippet
 
-Press `Ctrl+X Ctrl+R` to search snippets with fzf. The snippets are searched through by name and description.
+Press `Ctrl+X Ctrl+X` to search snippets with fzf. The snippets are searched through by name and description.
 
 | Key | Action |
 |-----|--------|
@@ -79,7 +79,9 @@ Press `Ctrl+X Ctrl+R` to search snippets with fzf. The snippets are searched thr
 
 ## Storage
 
-Snippets are stored as individual files in `~/.local/share/zsh-snip/`, making them easy to browse, edit, and sync via git. Subdirectories are supported for organization.
+Snippets are stored as individual files in `~/.local/share/zsh-snip/`, making
+them easy to browse, edit, and sync via git. Subdirectories are supported for
+organization. Hidden files are ignored (i.e. starting with `.`).
 
 ```
 ~/.local/share/zsh-snip/
@@ -88,8 +90,7 @@ Snippets are stored as individual files in `~/.local/share/zsh-snip/`, making th
 ├── docker/
 │   ├── cleanup
 │   └── prune-all
-└── k8s/
-    └── pods-not-running
+├── k8s/
+│    └── pods-not-running
+└── .git  # ignored, because hidden file
 ```
-
-Share this directory 

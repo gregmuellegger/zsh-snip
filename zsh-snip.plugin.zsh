@@ -284,6 +284,8 @@ _zsh_snip_search() {
       [[ -f "$f" ]] || continue
       # Get relative path from snip_dir (handles subdirs)
       local name="${f#$snip_dir/}"
+      # Skip dotfiles and files in dotdirs (e.g., .git/)
+      [[ "$name" == .* || "$name" == */.* ]] && continue
       local desc=$(_zsh_snip_read_description "$f")
       local cmd_preview=$(_zsh_snip_read_command_preview "$f" 50)
       # Truncate and pad description for alignment
@@ -356,4 +358,4 @@ zle -N _zsh_snip_save
 zle -N _zsh_snip_search
 
 bindkey '^X^S' _zsh_snip_save
-bindkey '^X^R' _zsh_snip_search
+bindkey '^X^X' _zsh_snip_search

@@ -157,6 +157,7 @@ _zsh_snip_read_command_preview() {
 # Extract trailing comment from a single-line command (e.g., "git commit # amend" -> "amend")
 # If comment contains "name: desc", returns just "desc"
 # Only works for one-liners to avoid matching # in heredocs/scripts
+# Note: Requires a char before #, so "# comment" (comment-only line) returns empty - intentional
 _zsh_snip_extract_trailing_comment() {
   local input="$1"
   local comment
@@ -179,6 +180,7 @@ _zsh_snip_extract_trailing_comment() {
 
 # Extract name from trailing comment (e.g., "git commit # myname: desc" -> "myname")
 # Returns empty if no name: prefix in comment or if multi-line
+# Note: Requires a char before #, so "# name: desc" returns empty - intentional
 _zsh_snip_extract_trailing_name() {
   local input="$1"
   local comment

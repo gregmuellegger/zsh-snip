@@ -91,6 +91,9 @@ _zsh_snip_write() {
 
   timestamp=$(date -Iseconds)
 
+  # Create parent directory if path contains subdirs (e.g., git/add)
+  mkdir -p "${filepath%/*}"
+
   cat > "$filepath" <<EOF
 # name: $name
 # description: $description

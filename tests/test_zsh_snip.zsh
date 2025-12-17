@@ -149,6 +149,12 @@ desc=$(_zsh_snip_read_description "$TEST_SNIP_DIR/test-3")
 assert_eq "" "$desc" \
   "reads empty description correctly"
 
+# Test writing to subdirectory (e.g., git/add)
+_zsh_snip_write "$TEST_SNIP_DIR/git/add" "git/add" "stage files" "git add ."
+read_cmd=$(_zsh_snip_read_command "$TEST_SNIP_DIR/git/add")
+assert_eq "git add ." "$read_cmd" \
+  "creates parent directory and writes snippet to subdirectory"
+
 # Cleanup
 rm -rf "$TEST_SNIP_DIR"
 

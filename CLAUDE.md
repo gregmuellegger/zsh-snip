@@ -42,6 +42,8 @@ Snippets have this header structure:
 
 The `name` field controls the filename - changing it renames the file on save.
 
+Subfolders are supported, so a name of `<dir>/<subdir>/<filename>` should be supported (even if the dir/subdir does not exist yet)
+
 ### Storage location
 Uses XDG Base Directory spec:
 ```zsh

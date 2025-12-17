@@ -1,8 +1,6 @@
 # zsh-snip - Shell Snippet Manager
 # Source this file in your .zshrc: source /path/to/zsh-snip.zsh
 
-setopt LOCAL_OPTIONS EXTENDED_GLOB
-
 # Configuration
 ZSH_SNIP_DIR="${ZSH_SNIP_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/zsh-snip}"
 ZSH_SNIP_EDITOR="${ZSH_SNIP_EDITOR:-${EDITOR:-vim}}"
@@ -223,13 +221,14 @@ _zsh_snip_save() {
     return 1
   fi
 
-  # Extract name and description from trailing comment if present
+  # Extract name and description from trailing comment if present (one-liners only)
   local comment_name=$(_zsh_snip_extract_trailing_name "$buffer")
   description=$(_zsh_snip_extract_trailing_comment "$buffer")
   command_to_save="$buffer"
   if [[ -n "$description" || -n "$comment_name" ]]; then
-    # Remove the trailing comment from the command
-    command_to_save="${buffer%%\#*}"
+    # Remove only the trailing comment (from last #, not first)
+    # Using % (shortest match from end) instead of %% (longest match)
+    command_to_save="${buffer%\#*}"
     # Trim trailing whitespace (# means zero-or-more in EXTENDED_GLOB)
     command_to_save="${command_to_save%%[[:space:]]#}"
   fi
@@ -280,6 +279,13 @@ _zsh_snip_save() {
 # Search and select snippet (CTRL-X CTRL-R)
 _zsh_snip_search() {
   setopt LOCAL_OPTIONS EXTENDED_GLOB
+
+  # Check fzf is available
+  if ! command -v fzf &>/dev/null; then
+    zle -M "zsh-snip: fzf is required but not found"
+    return 1
+  fi
+
   local selected
   local key
   local filepath

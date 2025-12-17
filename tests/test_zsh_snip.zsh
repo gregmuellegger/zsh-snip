@@ -180,6 +180,11 @@ assert_eq "note" "$(_zsh_snip_extract_trailing_comment 'echo "hello" # note')" \
 assert_eq "adding files to git" "$(_zsh_snip_extract_trailing_comment 'git add # add: adding files to git')" \
   "extracts description from name: desc format"
 
+# Note: regex doesn't understand quotes, so it captures from first unescaped #
+# The save function uses % (last #) for stripping which handles this case correctly
+assert_eq 'world" # actual comment' "$(_zsh_snip_extract_trailing_comment 'echo "hello # world" # actual comment')" \
+  "captures from first unescaped # (quote-aware parsing not implemented)"
+
 assert_eq "" "$(_zsh_snip_extract_trailing_comment $'cat <<EOF\n#!/bin/bash\necho hello\nEOF')" \
   "returns empty for multi-line input (heredoc)"
 

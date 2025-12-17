@@ -312,7 +312,13 @@ _zsh_snip_search() {
 
   # Generate list: filename<tab>description<tab>command_preview
   # Use column for auto-alignment based on actual content widths
-  local desc_width=30
+  # Scale column widths based on terminal width
+  local term_width=${COLUMNS:-80}
+  local desc_width=$(( term_width / 4 ))        # 25% for description
+  local cmd_width=$(( term_width / 3 ))         # 33% for command preview
+  (( desc_width < 20 )) && desc_width=20
+  (( cmd_width < 30 )) && cmd_width=30
+
   fzf_output=$(
     for f in "${files[@]}"; do
       [[ -f "$f" ]] || continue
@@ -321,7 +327,7 @@ _zsh_snip_search() {
       # Skip dotfiles and files in dotdirs (e.g., .git/)
       [[ "$name" == .* || "$name" == */.* ]] && continue
       local desc=$(_zsh_snip_read_description "$f")
-      local cmd_preview=$(_zsh_snip_read_command_preview "$f" 40)
+      local cmd_preview=$(_zsh_snip_read_command_preview "$f" "$cmd_width")
       # Truncate description
       if (( ${#desc} > desc_width )); then
         desc="${desc[1,$((desc_width - 1))]}…"

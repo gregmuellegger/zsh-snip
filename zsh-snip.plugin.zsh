@@ -300,7 +300,7 @@ _zsh_snip_search() {
       --delimiter='\t' \
       --tabstop=1 \
       --preview="$preview_cmd" \
-      --preview-window=bottom:50% \
+      --preview-window=top:50% \
       --expect=ctrl-e,alt-e \
       --header="ctrl-e: edit file | alt-e: edit inline" \
       --prompt="Snippet> "

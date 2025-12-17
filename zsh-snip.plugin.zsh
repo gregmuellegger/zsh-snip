@@ -362,6 +362,8 @@ _zsh_snip_search() {
   local fzf_output
   local global_dir="$ZSH_SNIP_DIR"
   local local_dir=$(_zsh_snip_find_local_dir)
+  # Pre-fill fzf query with current buffer content
+  local initial_query="$BUFFER"
 
   # Build preview command using field 4 (full path)
   if command -v bat &>/dev/null; then
@@ -423,7 +425,8 @@ _zsh_snip_search() {
         --preview-window=top:50% \
         --expect=ctrl-e,alt-e,ctrl-i,ctrl-n,ctrl-d \
         --header="ctrl-e: edit | alt-e: inline | ctrl-i: insert | ctrl-n: dup | ctrl-d: del" \
-        --prompt="Snippet> "
+        --prompt="Snippet> " \
+        --query="$initial_query"
     )
 
     # Parse fzf output: line 1 is key pressed, line 2 is selection

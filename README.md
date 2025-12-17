@@ -74,6 +74,8 @@ Press `Ctrl+X Ctrl+X` to search snippets with fzf. Both global and local snippet
 - `~` prefix: global snippets (from `~/.local/share/zsh-snip`)
 - `!` prefix: project-local snippets (from `.zsh-snip` in project directory)
 
+**Tip:** Your current command line is used as the initial search query. Type `docker` then `Ctrl+X Ctrl+X` to jump straight to your docker snippets.
+
 | Key | Action |
 |-----|--------|
 | `Enter` | Replace command line with snippet |

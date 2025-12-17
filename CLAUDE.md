@@ -45,10 +45,12 @@ The `name` field controls the filename - changing it renames the file on save.
 Subfolders are supported, so a name of `<dir>/<subdir>/<filename>` should be supported (even if the dir/subdir does not exist yet)
 
 ### Storage location
-Uses XDG Base Directory spec:
+Global snippets use XDG Base Directory spec:
 ```zsh
 ${XDG_DATA_HOME:-$HOME/.local/share}/zsh-snip
 ```
+
+Project-local snippets are stored in `.zsh-snip` (configurable via `ZSH_SNIP_LOCAL_PATH`) in the project directory tree. The plugin walks up from `$PWD` to find the nearest `.zsh-snip` directory.
 
 ## Testing
 
@@ -63,10 +65,11 @@ Run tests: `zsh tests/test_zsh_snip.zsh`
 
 ## Keybindings
 
-- `CTRL-X CTRL-S` - Save current command as snippet
+- `CTRL-X CTRL-S` - Save current command as global snippet
+- `CTRL-X CTRL-P` - Save current command as project-local snippet
 - `CTRL-X CTRL-X` - Search/expand snippets with fzf
 
-During fzf:
+During fzf (snippets show `~` prefix for global, `!` for local):
 - `Enter` - Replace buffer with snippet
 - `CTRL-I` - Insert snippet at cursor position
 - `CTRL-E` - Edit snippet file

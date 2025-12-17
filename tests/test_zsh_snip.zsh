@@ -351,6 +351,53 @@ rm -rf "$TEST_SNIP_DIR"
 
 
 # =============================================================================
+# Tests for _zsh_snip_find_local_dir
+# =============================================================================
+echo ""
+echo "Testing _zsh_snip_find_local_dir..."
+
+# Create a temp directory structure for testing
+TEST_PROJECT_ROOT=$(mktemp -d)
+mkdir -p "$TEST_PROJECT_ROOT/sub/deep"
+mkdir -p "$TEST_PROJECT_ROOT/.zsh-snip"
+
+# Save original values
+ORIG_ZSH_SNIP_LOCAL_PATH="${ZSH_SNIP_LOCAL_PATH:-}"
+
+# Test finding .zsh-snip in current directory
+ZSH_SNIP_LOCAL_PATH=".zsh-snip"
+cd "$TEST_PROJECT_ROOT"
+assert_eq "$TEST_PROJECT_ROOT/.zsh-snip" "$(_zsh_snip_find_local_dir)" \
+  "finds .zsh-snip in current directory"
+
+# Test finding .zsh-snip from subdirectory
+cd "$TEST_PROJECT_ROOT/sub/deep"
+assert_eq "$TEST_PROJECT_ROOT/.zsh-snip" "$(_zsh_snip_find_local_dir)" \
+  "finds .zsh-snip walking up from deep subdirectory"
+
+# Test with custom local path name
+mkdir -p "$TEST_PROJECT_ROOT/snippets"
+ZSH_SNIP_LOCAL_PATH="snippets"
+assert_eq "$TEST_PROJECT_ROOT/snippets" "$(_zsh_snip_find_local_dir)" \
+  "finds custom-named local snippet directory"
+
+# Test disabled when ZSH_SNIP_LOCAL_PATH is empty
+ZSH_SNIP_LOCAL_PATH=""
+assert_eq "" "$(_zsh_snip_find_local_dir)" \
+  "returns empty when ZSH_SNIP_LOCAL_PATH is empty"
+
+# Test when no local dir exists
+ZSH_SNIP_LOCAL_PATH=".nonexistent-snip-dir"
+assert_eq "" "$(_zsh_snip_find_local_dir)" \
+  "returns empty when local dir not found"
+
+# Restore and cleanup
+ZSH_SNIP_LOCAL_PATH="$ORIG_ZSH_SNIP_LOCAL_PATH"
+cd /
+rm -rf "$TEST_PROJECT_ROOT"
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

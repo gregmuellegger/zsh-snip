@@ -4,10 +4,11 @@ A lightweight zsh snippet manager using fzf for fuzzy search.
 
 Highlights:
 
-- Save current prompt, `CTRL-x CTRL-s`
+- Save current prompt, `CTRL-x CTRL-s` (global) or `CTRL-x CTRL-p` (project-local)
 - Search snippets with `fzf`
 - Store each snippet in a separate file for easy editing
 - Supports multi-line snippets
+- Project-local snippets via `.zsh-snip` directory
 
 ![zsh-snip demo](./demo/demo.gif)
 
@@ -45,7 +46,7 @@ source ~/.local/share/zsh-snip.plugin.zsh
 
 ### Save a snippet
 
-Press `Ctrl+X Ctrl+S` to save the current command line. Your editor opens with the snippet file - edit the name to something memorable, then save and quit.
+Press `Ctrl+X Ctrl+S` to save a global snippet, or `Ctrl+X Ctrl+P` to save a project-local snippet. Your editor opens with the snippet file - edit the name to something memorable, then save and quit.
 
 **Tip:** Add a trailing comment to your command and it becomes the description automatically:
 
@@ -69,7 +70,9 @@ E.g. change to something like `node-shell` or `docker/node-shell`
 
 ### Find a snippet
 
-Press `Ctrl+X Ctrl+X` to search snippets with fzf. The snippets are searched through by name and description.
+Press `Ctrl+X Ctrl+X` to search snippets with fzf. Both global and local snippets are shown:
+- `~` prefix: global snippets (from `~/.local/share/zsh-snip`)
+- `!` prefix: project-local snippets (from `.zsh-snip` in project directory)
 
 | Key | Action |
 |-----|--------|
@@ -84,8 +87,9 @@ Press `Ctrl+X Ctrl+X` to search snippets with fzf. The snippets are searched thr
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ZSH_SNIP_DIR` | `~/.local/share/zsh-snip` | Where snippets are stored (respects `$XDG_DATA_HOME`) |
+| `ZSH_SNIP_DIR` | `~/.local/share/zsh-snip` | Where global snippets are stored (respects `$XDG_DATA_HOME`) |
 | `ZSH_SNIP_EDITOR` | `$EDITOR` or `vim` | Editor for snippet editing |
+| `ZSH_SNIP_LOCAL_PATH` | `.zsh-snip` | Directory name for project-local snippets (set to empty string to disable) |
 
 ## Storage
 
@@ -104,3 +108,20 @@ organization. Hidden files are ignored (i.e. starting with `.`).
 │    └── pods-not-running
 └── .git  # ignored, because hidden file
 ```
+
+## Project-Local Snippets
+
+You can also have project-specific snippets by creating a `.zsh-snip` directory in your project. When searching, zsh-snip looks for this directory from the current working directory up to the root.
+
+Use `Ctrl+X Ctrl+P` to save a snippet locally. If no `.zsh-snip` directory exists, one is created in the current directory.
+
+```
+my-project/
+├── .zsh-snip/
+│   ├── build
+│   └── deploy
+├── src/
+└── package.json
+```
+
+This is useful for project-specific commands that don't belong in your global snippets. You can commit `.zsh-snip` to version control to share snippets with your team.

@@ -4,6 +4,7 @@
 # Configuration
 ZSH_SNIP_DIR="${ZSH_SNIP_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/zsh-snip}"
 ZSH_SNIP_EDITOR="${ZSH_SNIP_EDITOR:-${EDITOR:-vim}}"
+ZSH_SNIP_LOCAL_PATH="${ZSH_SNIP_LOCAL_PATH:-.zsh-snip}"
 
 # Ensure snippet directory exists
 [[ -d "$ZSH_SNIP_DIR" ]] || mkdir -p "$ZSH_SNIP_DIR"
@@ -11,6 +12,24 @@ ZSH_SNIP_EDITOR="${ZSH_SNIP_EDITOR:-${EDITOR:-vim}}"
 # Autoload edit-command-line for ALT-E functionality
 autoload -Uz edit-command-line
 zle -N edit-command-line
+
+# Find local snippet directory by walking up from current directory
+# Returns empty string if disabled or not found
+_zsh_snip_find_local_dir() {
+  # Disabled if ZSH_SNIP_LOCAL_PATH is empty
+  [[ -z "$ZSH_SNIP_LOCAL_PATH" ]] && return
+
+  local dir="$PWD"
+  while [[ "$dir" != "/" ]]; do
+    if [[ -d "$dir/$ZSH_SNIP_LOCAL_PATH" ]]; then
+      echo "$dir/$ZSH_SNIP_LOCAL_PATH"
+      return
+    fi
+    dir="${dir:h}"
+  done
+  # Check root as well
+  [[ -d "/$ZSH_SNIP_LOCAL_PATH" ]] && echo "/$ZSH_SNIP_LOCAL_PATH"
+}
 
 # Extract the primary command from a command string
 # Skips: variable assignments, sudo, subshell prefixes
@@ -325,7 +344,7 @@ _zsh_snip_insert_at_cursor() {
   CURSOR=$((CURSOR + ${#text}))
 }
 
-# Search and select snippet (CTRL-X CTRL-R)
+# Search and select snippet (CTRL-X CTRL-X)
 _zsh_snip_search() {
   setopt LOCAL_OPTIONS EXTENDED_GLOB
 
@@ -341,26 +360,28 @@ _zsh_snip_search() {
   local command
   local preview_cmd
   local fzf_output
-  local snip_dir="$ZSH_SNIP_DIR"
+  local global_dir="$ZSH_SNIP_DIR"
+  local local_dir=$(_zsh_snip_find_local_dir)
 
-  # Build preview command - expand snip_dir now since fzf runs in subprocess
+  # Build preview command using field 4 (full path)
   if command -v bat &>/dev/null; then
-    preview_cmd="bat --style=plain --color=always --language=bash '${snip_dir}/'{1}"
+    preview_cmd="bat --style=plain --color=always --language=bash {4}"
   else
-    preview_cmd="cat '${snip_dir}/'{1}"
+    preview_cmd="cat {4}"
   fi
 
   # Loop to allow returning to fzf after delete
   while true; do
-    # Check if any snippets exist (search recursively for subdirs)
-    local files=("$snip_dir"/**/*(N.))
-    if (( ${#files[@]} == 0 )); then
+    # Gather snippets from both global and local directories
+    local global_files=("$global_dir"/**/*(N.))
+    local local_files=()
+    [[ -n "$local_dir" ]] && local_files=("$local_dir"/**/*(N.))
+
+    if (( ${#global_files[@]} == 0 && ${#local_files[@]} == 0 )); then
       zle -M "zsh-snip: No snippets found"
       break
     fi
 
-    # Generate list: filename<tab>description<tab>command_preview
-    # Use column for auto-alignment based on actual content widths
     # Scale column widths based on terminal width
     local term_width=${COLUMNS:-80}
     local desc_width=$(( term_width / 4 ))        # 25% for description
@@ -368,23 +389,36 @@ _zsh_snip_search() {
     (( desc_width < 20 )) && desc_width=20
     (( cmd_width < 30 )) && cmd_width=30
 
+    # Generate list: prefix+name|description|preview|fullpath
     fzf_output=$(
-      for f in "${files[@]}"; do
-        [[ -f "$f" ]] || continue
-        # Get relative path from snip_dir (handles subdirs)
-        local name="${f#$snip_dir/}"
-        # Skip dotfiles and files in dotdirs (e.g., .git/)
-        [[ "$name" == .* || "$name" == */.* ]] && continue
-        local desc=$(_zsh_snip_read_description "$f")
-        local cmd_preview=$(_zsh_snip_read_command_preview "$f" "$cmd_width")
-        # Truncate description
-        if (( ${#desc} > desc_width )); then
-          desc="${desc[1,$((desc_width - 1))]}…"
-        fi
-        # Use | as delimiter for column, then convert to tab for fzf
-        printf '%s|%s|%s\n' "$name" "$desc" "$cmd_preview"
-      done | column -t -s '|' -o $'\t' | fzf \
+      {
+        # Global snippets (prefix: ~)
+        for f in "${global_files[@]}"; do
+          [[ -f "$f" ]] || continue
+          local name="${f#$global_dir/}"
+          [[ "$name" == .* || "$name" == */.* ]] && continue
+          local desc=$(_zsh_snip_read_description "$f")
+          local cmd_preview=$(_zsh_snip_read_command_preview "$f" "$cmd_width")
+          if (( ${#desc} > desc_width )); then
+            desc="${desc[1,$((desc_width - 1))]}…"
+          fi
+          printf '~ %s|%s|%s|%s\n' "$name" "$desc" "$cmd_preview" "$f"
+        done
+        # Local snippets (prefix: !)
+        for f in "${local_files[@]}"; do
+          [[ -f "$f" ]] || continue
+          local name="${f#$local_dir/}"
+          [[ "$name" == .* || "$name" == */.* ]] && continue
+          local desc=$(_zsh_snip_read_description "$f")
+          local cmd_preview=$(_zsh_snip_read_command_preview "$f" "$cmd_width")
+          if (( ${#desc} > desc_width )); then
+            desc="${desc[1,$((desc_width - 1))]}…"
+          fi
+          printf '! %s|%s|%s|%s\n' "$name" "$desc" "$cmd_preview" "$f"
+        done
+      } | column -t -s '|' -o $'\t' | fzf \
         --delimiter='\t' \
+        --with-nth=1,2,3 \
         --preview="$preview_cmd" \
         --preview-window=top:50% \
         --expect=ctrl-e,alt-e,ctrl-i,ctrl-n,ctrl-d \
@@ -395,15 +429,26 @@ _zsh_snip_search() {
     # Parse fzf output: line 1 is key pressed, line 2 is selection
     key="${fzf_output%%$'\n'*}"
     selected="${fzf_output#*$'\n'}"
-    selected="${selected%%$'\t'*}"  # Get filename before tab
-    selected="${selected%%[[:space:]]#}"  # Trim trailing whitespace
 
     if [[ -z "$selected" ]]; then
       break
     fi
 
-    filepath="$snip_dir/$selected"
+    # Extract display name (field 1) and full path (field 4)
+    local display_name="${selected%%$'\t'*}"
+    display_name="${display_name%%[[:space:]]#}"  # Trim trailing whitespace
+    # Get field 4 (full path) - split by tab and get last field
+    filepath="${selected##*$'\t'}"
     command=$(_zsh_snip_read_command "$filepath")
+    # Get the base directory for this snippet
+    local snip_dir
+    if [[ "$display_name" == "~ "* ]]; then
+      snip_dir="$global_dir"
+    else
+      snip_dir="$local_dir"
+    fi
+    # Strip prefix from display name for operations
+    selected="${display_name#[~!] }"
 
     case "$key" in
       ctrl-e)
@@ -484,9 +529,86 @@ _zsh_snip_search() {
   zle reset-prompt
 }
 
+# Save current buffer as local/project snippet (CTRL-X CTRL-P)
+_zsh_snip_save_local() {
+  setopt LOCAL_OPTIONS EXTENDED_GLOB
+  local buffer="$BUFFER"
+  local cmd
+  local id
+  local default_name
+  local filepath
+  local command_to_save
+  local description
+  local new_name
+  local new_path
+
+  # Determine local snippet directory
+  local local_dir=$(_zsh_snip_find_local_dir)
+  if [[ -z "$local_dir" ]]; then
+    # Create .zsh-snip in current directory
+    local_dir="$PWD/$ZSH_SNIP_LOCAL_PATH"
+    mkdir -p "$local_dir"
+  fi
+
+  # Abort if buffer is empty
+  if [[ -z "${buffer// /}" ]]; then
+    zle -M "zsh-snip: Nothing to save"
+    return 1
+  fi
+
+  # Extract name and description from trailing comment if present (one-liners only)
+  local comment_name=$(_zsh_snip_extract_trailing_name "$buffer")
+  description=$(_zsh_snip_extract_trailing_comment "$buffer")
+  command_to_save="$buffer"
+  if [[ -n "$description" || -n "$comment_name" ]]; then
+    command_to_save="${buffer%\#*}"
+    command_to_save="${command_to_save%%[[:space:]]#}"
+  fi
+
+  # Generate default filename
+  if [[ -n "$comment_name" ]]; then
+    comment_name=$(_zsh_snip_slugify "$comment_name")
+    if [[ -e "$local_dir/$comment_name" ]]; then
+      id=$(_zsh_snip_next_id "$comment_name")
+      default_name="$comment_name-$id"
+    else
+      default_name="$comment_name"
+    fi
+  else
+    cmd=$(_zsh_snip_extract_command "$buffer")
+    cmd=$(_zsh_snip_slugify "$cmd")
+    [[ -z "$cmd" ]] && cmd="snippet"
+    id=$(_zsh_snip_next_id "$cmd")
+    default_name="$cmd-$id"
+  fi
+  filepath="$local_dir/$default_name"
+
+  # Write snippet and open in editor
+  _zsh_snip_write "$filepath" "$default_name" "$description" "$command_to_save"
+  _zsh_snip_edit_at_name "$filepath"
+
+  # Check if name was changed in editor
+  new_name=$(_zsh_snip_read_name "$filepath")
+  if [[ -n "$new_name" && "$new_name" != "$default_name" ]]; then
+    new_path="$local_dir/$new_name"
+    if [[ -e "$new_path" ]]; then
+      echo "Error: '$new_name' already exists, keeping as '$default_name'"
+    else
+      [[ "$new_name" == */* ]] && mkdir -p "${new_path%/*}"
+      mv "$filepath" "$new_path"
+      filepath="$new_path"
+    fi
+  fi
+
+  zle reset-prompt
+  zle -M "Saved (local): $filepath"
+}
+
 # Register widgets and keybindings
 zle -N _zsh_snip_save
+zle -N _zsh_snip_save_local
 zle -N _zsh_snip_search
 
 bindkey '^X^S' _zsh_snip_save
+bindkey '^X^P' _zsh_snip_save_local
 bindkey '^X^X' _zsh_snip_search

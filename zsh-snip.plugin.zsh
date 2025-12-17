@@ -310,8 +310,8 @@ _zsh_snip_search() {
     return 1
   fi
 
-  # Generate list: filename<tab>description (fixed width)<tab>command_preview
-  # Search snippets with fzf
+  # Generate list: filename<tab>description<tab>command_preview
+  # Use column for auto-alignment based on actual content widths
   local desc_width=30
   fzf_output=$(
     for f in "${files[@]}"; do
@@ -321,15 +321,15 @@ _zsh_snip_search() {
       # Skip dotfiles and files in dotdirs (e.g., .git/)
       [[ "$name" == .* || "$name" == */.* ]] && continue
       local desc=$(_zsh_snip_read_description "$f")
-      local cmd_preview=$(_zsh_snip_read_command_preview "$f" 50)
-      # Truncate and pad description for alignment
+      local cmd_preview=$(_zsh_snip_read_command_preview "$f" 40)
+      # Truncate description
       if (( ${#desc} > desc_width )); then
         desc="${desc[1,$((desc_width - 1))]}…"
       fi
-      printf '%-20s\t%-30s\t%s\n' "$name" "$desc" "$cmd_preview"
-    done | fzf \
+      # Use | as delimiter for column, then convert to tab for fzf
+      printf '%s|%s|%s\n' "$name" "$desc" "$cmd_preview"
+    done | column -t -s '|' -o $'\t' | fzf \
       --delimiter='\t' \
-      --tabstop=1 \
       --preview="$preview_cmd" \
       --preview-window=top:50% \
       --expect=ctrl-e,alt-e \

@@ -33,7 +33,7 @@ plugins=(... zsh-snip)
 
 ### Manual
 
-Or place the file somehwere on the disk and source it in your `.zshrc`:
+Or place the file somewhere on the disk and source it in your `.zshrc`:
 
 ```zsh
 curl -fsSL https://raw.githubusercontent.com/gregmuellegger/zsh-snip/main/zsh-snip.plugin.zsh -o ~/.local/share/zsh-snip.plugin.zsh

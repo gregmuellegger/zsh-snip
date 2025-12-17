@@ -334,9 +334,13 @@ _zsh_snip_search() {
           # Create parent directory if name contains subdirs
           [[ "$new_name" == */* ]] && mkdir -p "${new_path%/*}"
           mv "$filepath" "$new_path"
-          echo "Renamed to: $new_path"
+          filepath="$new_path"
         fi
       fi
+      # Fill edited command into buffer
+      command=$(_zsh_snip_read_command "$filepath")
+      BUFFER="$command"
+      CURSOR=$#BUFFER
       ;;
     alt-e)
       # Insert into buffer and edit inline

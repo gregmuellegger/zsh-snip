@@ -2,7 +2,14 @@
 
 A lightweight zsh snippet manager using fzf for fuzzy search.
 
-There are other solutions but none of which I tried supported multi-line snippets.
+Highlights:
+
+- Save current prompt, `CTRL-x CTRL-s`
+- Search snippets with `fzf`
+- Store each snippet in a separate file for easy editing
+- Supports multi-line snippets
+
+![zsh-snip demo](./demo/demo.gif)
 
 ## Installation
 

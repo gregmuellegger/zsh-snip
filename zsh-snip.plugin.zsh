@@ -156,11 +156,16 @@ _zsh_snip_read_command_preview() {
   fi
 }
 
-# Extract trailing comment from a command (e.g., "git commit # amend" -> "amend")
+# Extract trailing comment from a single-line command (e.g., "git commit # amend" -> "amend")
 # If comment contains "name: desc", returns just "desc"
+# Only works for one-liners to avoid matching # in heredocs/scripts
 _zsh_snip_extract_trailing_comment() {
   local input="$1"
   local comment
+
+  # Only extract from one-liners
+  [[ "$input" == *$'\n'* ]] && return
+
   # Match # followed by text at end of line, but not inside quotes
   # Simple approach: just look for last # not preceded by backslash
   if [[ "$input" =~ [^\\]#[[:space:]]*(.+)$ ]]; then
@@ -175,10 +180,14 @@ _zsh_snip_extract_trailing_comment() {
 }
 
 # Extract name from trailing comment (e.g., "git commit # myname: desc" -> "myname")
-# Returns empty if no name: prefix in comment
+# Returns empty if no name: prefix in comment or if multi-line
 _zsh_snip_extract_trailing_name() {
   local input="$1"
   local comment
+
+  # Only extract from one-liners
+  [[ "$input" == *$'\n'* ]] && return
+
   if [[ "$input" =~ [^\\]#[[:space:]]*(.+)$ ]]; then
     comment="${match[1]}"
     # If comment has "name: description" format, return the name part
@@ -186,6 +195,13 @@ _zsh_snip_extract_trailing_name() {
       echo "${comment%%:*}"
     fi
   fi
+}
+
+# Slugify a string for use as filename (remove/replace invalid chars)
+_zsh_snip_slugify() {
+  local input="$1"
+  # Replace spaces and problematic chars with dashes, keep alphanumeric, dash, underscore, slash
+  echo "$input" | tr -cs 'a-zA-Z0-9_/-' '-' | sed 's/^-//;s/-$//'
 }
 
 # Save current buffer as snippet (CTRL-X CTRL-S)
@@ -219,6 +235,8 @@ _zsh_snip_save() {
 
   # Generate default filename - use comment name if provided, otherwise extract from command
   if [[ -n "$comment_name" ]]; then
+    # Slugify name to ensure valid filename
+    comment_name=$(_zsh_snip_slugify "$comment_name")
     # Check if name exists, add number if collision
     if [[ -e "$ZSH_SNIP_DIR/$comment_name" ]]; then
       id=$(_zsh_snip_next_id "$comment_name")
@@ -228,6 +246,9 @@ _zsh_snip_save() {
     fi
   else
     cmd=$(_zsh_snip_extract_command "$buffer")
+    # Slugify to handle edge cases (e.g., commands with special chars)
+    cmd=$(_zsh_snip_slugify "$cmd")
+    [[ -z "$cmd" ]] && cmd="snippet"
     id=$(_zsh_snip_next_id "$cmd")
     default_name="$cmd-$id"
   fi

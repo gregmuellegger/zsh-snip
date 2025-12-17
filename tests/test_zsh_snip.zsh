@@ -180,6 +180,12 @@ assert_eq "note" "$(_zsh_snip_extract_trailing_comment 'echo "hello" # note')" \
 assert_eq "adding files to git" "$(_zsh_snip_extract_trailing_comment 'git add # add: adding files to git')" \
   "extracts description from name: desc format"
 
+assert_eq "" "$(_zsh_snip_extract_trailing_comment $'cat <<EOF\n#!/bin/bash\necho hello\nEOF')" \
+  "returns empty for multi-line input (heredoc)"
+
+assert_eq "" "$(_zsh_snip_extract_trailing_comment $'line1\nline2 # comment')" \
+  "returns empty for multi-line input even with comment on last line"
+
 # =============================================================================
 # Tests for _zsh_snip_extract_trailing_name
 # =============================================================================
@@ -197,6 +203,37 @@ assert_eq "" "$(_zsh_snip_extract_trailing_name 'git status')" \
 
 assert_eq "my-snippet" "$(_zsh_snip_extract_trailing_name 'docker run # my-snippet: run container')" \
   "extracts hyphenated name"
+
+assert_eq "" "$(_zsh_snip_extract_trailing_name $'cat <<EOF\n#!/bin/bash\nEOF')" \
+  "returns empty for multi-line input"
+
+
+# =============================================================================
+# Tests for _zsh_snip_slugify
+# =============================================================================
+echo ""
+echo "Testing _zsh_snip_slugify..."
+
+assert_eq "hello-world" "$(_zsh_snip_slugify 'hello world')" \
+  "replaces spaces with dashes"
+
+assert_eq "git-add" "$(_zsh_snip_slugify 'git add')" \
+  "handles simple command"
+
+assert_eq "test" "$(_zsh_snip_slugify '  test  ')" \
+  "trims leading/trailing dashes from whitespace"
+
+assert_eq "my_snippet" "$(_zsh_snip_slugify 'my_snippet')" \
+  "preserves underscores"
+
+assert_eq "git/status" "$(_zsh_snip_slugify 'git/status')" \
+  "preserves forward slashes for subdirectories"
+
+assert_eq "file-txt" "$(_zsh_snip_slugify 'file.txt')" \
+  "replaces dots with dashes"
+
+assert_eq "simple-name" "$(_zsh_snip_slugify 'simple-name')" \
+  "preserves dashes"
 
 
 # =============================================================================

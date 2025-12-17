@@ -71,6 +71,7 @@ During fzf:
 - `CTRL-I` - Insert snippet at cursor position
 - `CTRL-E` - Edit snippet file
 - `CTRL-N` - Duplicate snippet and edit the copy
+- `CTRL-D` - Delete snippet (with confirmation)
 - `ALT-E` - Insert and edit inline (like `fc`)
 
 ## Files

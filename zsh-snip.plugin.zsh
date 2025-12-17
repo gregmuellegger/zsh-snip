@@ -350,125 +350,136 @@ _zsh_snip_search() {
     preview_cmd="cat '${snip_dir}/'{1}"
   fi
 
-  # Check if any snippets exist (search recursively for subdirs)
-  local files=("$snip_dir"/**/*(N.))
-  if (( ${#files[@]} == 0 )); then
-    zle -M "zsh-snip: No snippets found"
-    return 1
-  fi
+  # Loop to allow returning to fzf after delete
+  while true; do
+    # Check if any snippets exist (search recursively for subdirs)
+    local files=("$snip_dir"/**/*(N.))
+    if (( ${#files[@]} == 0 )); then
+      zle -M "zsh-snip: No snippets found"
+      break
+    fi
 
-  # Generate list: filename<tab>description<tab>command_preview
-  # Use column for auto-alignment based on actual content widths
-  # Scale column widths based on terminal width
-  local term_width=${COLUMNS:-80}
-  local desc_width=$(( term_width / 4 ))        # 25% for description
-  local cmd_width=$(( term_width / 3 ))         # 33% for command preview
-  (( desc_width < 20 )) && desc_width=20
-  (( cmd_width < 30 )) && cmd_width=30
+    # Generate list: filename<tab>description<tab>command_preview
+    # Use column for auto-alignment based on actual content widths
+    # Scale column widths based on terminal width
+    local term_width=${COLUMNS:-80}
+    local desc_width=$(( term_width / 4 ))        # 25% for description
+    local cmd_width=$(( term_width / 3 ))         # 33% for command preview
+    (( desc_width < 20 )) && desc_width=20
+    (( cmd_width < 30 )) && cmd_width=30
 
-  fzf_output=$(
-    for f in "${files[@]}"; do
-      [[ -f "$f" ]] || continue
-      # Get relative path from snip_dir (handles subdirs)
-      local name="${f#$snip_dir/}"
-      # Skip dotfiles and files in dotdirs (e.g., .git/)
-      [[ "$name" == .* || "$name" == */.* ]] && continue
-      local desc=$(_zsh_snip_read_description "$f")
-      local cmd_preview=$(_zsh_snip_read_command_preview "$f" "$cmd_width")
-      # Truncate description
-      if (( ${#desc} > desc_width )); then
-        desc="${desc[1,$((desc_width - 1))]}…"
-      fi
-      # Use | as delimiter for column, then convert to tab for fzf
-      printf '%s|%s|%s\n' "$name" "$desc" "$cmd_preview"
-    done | column -t -s '|' -o $'\t' | fzf \
-      --delimiter='\t' \
-      --preview="$preview_cmd" \
-      --preview-window=top:50% \
-      --expect=ctrl-e,alt-e,ctrl-i,ctrl-n \
-      --header="ctrl-e: edit | alt-e: edit inline | ctrl-i: insert | ctrl-n: duplicate" \
-      --prompt="Snippet> "
-  )
-
-  # Parse fzf output: line 1 is key pressed, line 2 is selection
-  key="${fzf_output%%$'\n'*}"
-  selected="${fzf_output#*$'\n'}"
-  selected="${selected%%$'\t'*}"  # Get filename before tab
-  selected="${selected%%[[:space:]]#}"  # Trim trailing whitespace
-
-  if [[ -z "$selected" ]]; then
-    zle reset-prompt
-    return
-  fi
-
-  filepath="$snip_dir/$selected"
-  command=$(_zsh_snip_read_command "$filepath")
-
-  case "$key" in
-    ctrl-e)
-      # Edit the snippet file
-      "$ZSH_SNIP_EDITOR" "$filepath"
-      # Check if name was changed in editor
-      local new_name=$(_zsh_snip_read_name "$filepath")
-      if [[ -n "$new_name" && "$new_name" != "$selected" ]]; then
-        local new_path="$snip_dir/$new_name"
-        if [[ -e "$new_path" ]]; then
-          echo "Error: '$new_name' already exists, keeping as '$selected'"
-        else
-          # Create parent directory if name contains subdirs
-          [[ "$new_name" == */* ]] && mkdir -p "${new_path%/*}"
-          mv "$filepath" "$new_path"
-          filepath="$new_path"
+    fzf_output=$(
+      for f in "${files[@]}"; do
+        [[ -f "$f" ]] || continue
+        # Get relative path from snip_dir (handles subdirs)
+        local name="${f#$snip_dir/}"
+        # Skip dotfiles and files in dotdirs (e.g., .git/)
+        [[ "$name" == .* || "$name" == */.* ]] && continue
+        local desc=$(_zsh_snip_read_description "$f")
+        local cmd_preview=$(_zsh_snip_read_command_preview "$f" "$cmd_width")
+        # Truncate description
+        if (( ${#desc} > desc_width )); then
+          desc="${desc[1,$((desc_width - 1))]}…"
         fi
-      fi
-      # Fill edited command into buffer
-      command=$(_zsh_snip_read_command "$filepath")
-      BUFFER="$command"
-      CURSOR=$#BUFFER
-      ;;
-    alt-e)
-      # Insert into buffer and edit inline
-      BUFFER="$command"
-      CURSOR=$#BUFFER
-      zle reset-prompt
-      # Use zle edit-command-line to edit buffer (like fc)
-      zle edit-command-line
-      ;;
-    ctrl-i)
-      # Insert at cursor position without replacing buffer
-      _zsh_snip_insert_at_cursor "$command"
-      ;;
-    ctrl-n)
-      # Duplicate snippet and open editor
-      local dup_name=$(_zsh_snip_duplicate_name "$selected")
-      local dup_path="$snip_dir/$dup_name"
-      local desc=$(_zsh_snip_read_description "$filepath")
-      # Create parent directory if needed
-      [[ "$dup_name" == */* ]] && mkdir -p "${dup_path%/*}"
-      _zsh_snip_write "$dup_path" "$dup_name" "$desc" "$command"
-      "$ZSH_SNIP_EDITOR" "$dup_path"
-      # Check if name was changed in editor
-      local new_name=$(_zsh_snip_read_name "$dup_path")
-      if [[ -n "$new_name" && "$new_name" != "$dup_name" ]]; then
-        local new_path="$snip_dir/$new_name"
-        if [[ -e "$new_path" ]]; then
-          echo "Error: '$new_name' already exists, keeping as '$dup_name'"
-        else
-          [[ "$new_name" == */* ]] && mkdir -p "${new_path%/*}"
-          mv "$dup_path" "$new_path"
-          dup_path="$new_path"
+        # Use | as delimiter for column, then convert to tab for fzf
+        printf '%s|%s|%s\n' "$name" "$desc" "$cmd_preview"
+      done | column -t -s '|' -o $'\t' | fzf \
+        --delimiter='\t' \
+        --preview="$preview_cmd" \
+        --preview-window=top:50% \
+        --expect=ctrl-e,alt-e,ctrl-i,ctrl-n,ctrl-d \
+        --header="ctrl-e: edit | alt-e: inline | ctrl-i: insert | ctrl-n: dup | ctrl-d: del" \
+        --prompt="Snippet> "
+    )
+
+    # Parse fzf output: line 1 is key pressed, line 2 is selection
+    key="${fzf_output%%$'\n'*}"
+    selected="${fzf_output#*$'\n'}"
+    selected="${selected%%$'\t'*}"  # Get filename before tab
+    selected="${selected%%[[:space:]]#}"  # Trim trailing whitespace
+
+    if [[ -z "$selected" ]]; then
+      break
+    fi
+
+    filepath="$snip_dir/$selected"
+    command=$(_zsh_snip_read_command "$filepath")
+
+    case "$key" in
+      ctrl-e)
+        # Edit the snippet file, then return to fzf
+        "$ZSH_SNIP_EDITOR" "$filepath"
+        # Check if name was changed in editor
+        local new_name=$(_zsh_snip_read_name "$filepath")
+        if [[ -n "$new_name" && "$new_name" != "$selected" ]]; then
+          local new_path="$snip_dir/$new_name"
+          if [[ -e "$new_path" ]]; then
+            echo "Error: '$new_name' already exists, keeping as '$selected'"
+          else
+            [[ "$new_name" == */* ]] && mkdir -p "${new_path%/*}"
+            mv "$filepath" "$new_path"
+          fi
         fi
-      fi
-      command=$(_zsh_snip_read_command "$dup_path")
-      BUFFER="$command"
-      CURSOR=$#BUFFER
-      ;;
-    *)
-      # Replace buffer with snippet
-      BUFFER="$command"
-      CURSOR=$#BUFFER
-      ;;
-  esac
+        continue
+        ;;
+      ctrl-d)
+        # Delete snippet with confirmation, then return to fzf
+        zle reset-prompt
+        echo -n "Delete '$selected'? [y/N] "
+        local response
+        read -k 1 response </dev/tty
+        echo
+        if [[ "$response" == [yY] ]]; then
+          rm "$filepath"
+        fi
+        continue
+        ;;
+      ctrl-n)
+        # Duplicate snippet and open editor
+        local dup_name=$(_zsh_snip_duplicate_name "$selected")
+        local dup_path="$snip_dir/$dup_name"
+        local desc=$(_zsh_snip_read_description "$filepath")
+        [[ "$dup_name" == */* ]] && mkdir -p "${dup_path%/*}"
+        _zsh_snip_write "$dup_path" "$dup_name" "$desc" "$command"
+        "$ZSH_SNIP_EDITOR" "$dup_path"
+        # Check if name was changed in editor
+        local new_name=$(_zsh_snip_read_name "$dup_path")
+        if [[ -n "$new_name" && "$new_name" != "$dup_name" ]]; then
+          local new_path="$snip_dir/$new_name"
+          if [[ -e "$new_path" ]]; then
+            echo "Error: '$new_name' already exists, keeping as '$dup_name'"
+          else
+            [[ "$new_name" == */* ]] && mkdir -p "${new_path%/*}"
+            mv "$dup_path" "$new_path"
+            dup_path="$new_path"
+          fi
+        fi
+        command=$(_zsh_snip_read_command "$dup_path")
+        BUFFER="$command"
+        CURSOR=$#BUFFER
+        break
+        ;;
+      alt-e)
+        # Insert into buffer and edit inline
+        BUFFER="$command"
+        CURSOR=$#BUFFER
+        zle reset-prompt
+        zle edit-command-line
+        break
+        ;;
+      ctrl-i)
+        # Insert at cursor position without replacing buffer
+        _zsh_snip_insert_at_cursor "$command"
+        break
+        ;;
+      *)
+        # Replace buffer with snippet
+        BUFFER="$command"
+        CURSOR=$#BUFFER
+        break
+        ;;
+    esac
+  done
 
   zle reset-prompt
 }

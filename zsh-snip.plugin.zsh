@@ -391,7 +391,9 @@ _zsh_snip_search() {
     (( desc_width < 20 )) && desc_width=20
     (( cmd_width < 30 )) && cmd_width=30
 
-    # Generate list: prefix+name|description|preview|fullpath
+    # Generate list: prefix+name[US]description[US]preview[US]fullpath
+    # Using ASCII unit separator (\x1f) to avoid conflicts with | in content
+    local US=$'\x1f'
     fzf_output=$(
       {
         # Global snippets (prefix: ~)
@@ -404,7 +406,7 @@ _zsh_snip_search() {
           if (( ${#desc} > desc_width )); then
             desc="${desc[1,$((desc_width - 1))]}…"
           fi
-          printf '~ %s|%s|%s|%s\n' "$name" "$desc" "$cmd_preview" "$f"
+          printf '~ %s%s%s%s%s%s%s\n' "$name" "$US" "$desc" "$US" "$cmd_preview" "$US" "$f"
         done
         # Local snippets (prefix: !)
         for f in "${local_files[@]}"; do
@@ -416,9 +418,9 @@ _zsh_snip_search() {
           if (( ${#desc} > desc_width )); then
             desc="${desc[1,$((desc_width - 1))]}…"
           fi
-          printf '! %s|%s|%s|%s\n' "$name" "$desc" "$cmd_preview" "$f"
+          printf '! %s%s%s%s%s%s%s\n' "$name" "$US" "$desc" "$US" "$cmd_preview" "$US" "$f"
         done
-      } | column -t -s '|' -o $'\t' | fzf \
+      } | column -t -s $'\x1f' -o $'\t' | fzf \
         --delimiter='\t' \
         --with-nth=1,2,3 \
         --preview="$preview_cmd" \

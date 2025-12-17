@@ -206,6 +206,7 @@ _zsh_snip_slugify() {
 
 # Save current buffer as snippet (CTRL-X CTRL-S)
 _zsh_snip_save() {
+  setopt LOCAL_OPTIONS EXTENDED_GLOB
   local buffer="$BUFFER"
   local cmd
   local id
@@ -278,6 +279,7 @@ _zsh_snip_save() {
 
 # Search and select snippet (CTRL-X CTRL-R)
 _zsh_snip_search() {
+  setopt LOCAL_OPTIONS EXTENDED_GLOB
   local selected
   local key
   local filepath

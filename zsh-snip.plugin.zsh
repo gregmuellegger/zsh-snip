@@ -79,6 +79,45 @@ _zsh_snip_next_id() {
   echo $(( max_id + 1 ))
 }
 
+# Generate a duplicate name for a snippet (docker-1 → docker-2)
+_zsh_snip_duplicate_name() {
+  local name="$1"
+  local base
+  local dir=""
+
+  # Handle subdirectory: extract dir and filename
+  if [[ "$name" == */* ]]; then
+    dir="${name%/*}/"
+    name="${name##*/}"
+  fi
+
+  # Strip trailing -N to get base name
+  if [[ "$name" =~ ^(.+)-[0-9]+$ ]]; then
+    base="${match[1]}"
+  else
+    base="$name"
+  fi
+
+  # Find next available ID
+  local max_id=0
+  local id
+  local file
+  local files
+
+  files=("$ZSH_SNIP_DIR"/"$dir""$base"-*(N))
+
+  for file in "${files[@]}"; do
+    [[ -e "$file" ]] || continue
+    file="${file##*/}"      # basename
+    id="${file##"$base"-}"  # remove prefix
+    if [[ "$id" =~ ^[0-9]+$ ]] && (( id > max_id )); then
+      max_id=$id
+    fi
+  done
+
+  echo "${dir}${base}-$(( max_id + 1 ))"
+}
+
 # Write a snippet file
 _zsh_snip_write() {
   local filepath="$1"
@@ -346,8 +385,8 @@ _zsh_snip_search() {
       --delimiter='\t' \
       --preview="$preview_cmd" \
       --preview-window=top:50% \
-      --expect=ctrl-e,alt-e,ctrl-i \
-      --header="ctrl-e: edit file | alt-e: edit inline | ctrl-i: insert at cursor" \
+      --expect=ctrl-e,alt-e,ctrl-i,ctrl-n \
+      --header="ctrl-e: edit | alt-e: edit inline | ctrl-i: insert | ctrl-n: duplicate" \
       --prompt="Snippet> "
   )
 
@@ -398,6 +437,31 @@ _zsh_snip_search() {
     ctrl-i)
       # Insert at cursor position without replacing buffer
       _zsh_snip_insert_at_cursor "$command"
+      ;;
+    ctrl-n)
+      # Duplicate snippet and open editor
+      local dup_name=$(_zsh_snip_duplicate_name "$selected")
+      local dup_path="$snip_dir/$dup_name"
+      local desc=$(_zsh_snip_read_description "$filepath")
+      # Create parent directory if needed
+      [[ "$dup_name" == */* ]] && mkdir -p "${dup_path%/*}"
+      _zsh_snip_write "$dup_path" "$dup_name" "$desc" "$command"
+      "$ZSH_SNIP_EDITOR" "$dup_path"
+      # Check if name was changed in editor
+      local new_name=$(_zsh_snip_read_name "$dup_path")
+      if [[ -n "$new_name" && "$new_name" != "$dup_name" ]]; then
+        local new_path="$snip_dir/$new_name"
+        if [[ -e "$new_path" ]]; then
+          echo "Error: '$new_name' already exists, keeping as '$dup_name'"
+        else
+          [[ "$new_name" == */* ]] && mkdir -p "${new_path%/*}"
+          mv "$dup_path" "$new_path"
+          dup_path="$new_path"
+        fi
+      fi
+      command=$(_zsh_snip_read_command "$dup_path")
+      BUFFER="$command"
+      CURSOR=$#BUFFER
       ;;
     *)
       # Replace buffer with snippet

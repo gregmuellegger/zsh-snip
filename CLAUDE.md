@@ -70,6 +70,7 @@ During fzf:
 - `Enter` - Replace buffer with snippet
 - `CTRL-I` - Insert snippet at cursor position
 - `CTRL-E` - Edit snippet file
+- `CTRL-N` - Duplicate snippet and edit the copy
 - `ALT-E` - Insert and edit inline (like `fc`)
 
 ## Files

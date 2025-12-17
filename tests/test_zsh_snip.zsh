@@ -319,6 +319,38 @@ assert_eq $'echo start; git add .\ngit commit -m "test"; echo end' "$BUFFER" \
 
 
 # =============================================================================
+# Tests for _zsh_snip_duplicate_name
+# =============================================================================
+echo ""
+echo "Testing _zsh_snip_duplicate_name..."
+
+TEST_SNIP_DIR=$(mktemp -d)
+ZSH_SNIP_DIR="$TEST_SNIP_DIR"
+
+# Test basic duplication (docker-1 → docker-2)
+touch "$TEST_SNIP_DIR/docker-1"
+assert_eq "docker-2" "$(_zsh_snip_duplicate_name 'docker-1')" \
+  "increments numeric suffix"
+
+# Test when next number already exists (docker-1 with docker-2 existing → docker-3)
+touch "$TEST_SNIP_DIR/docker-2"
+assert_eq "docker-3" "$(_zsh_snip_duplicate_name 'docker-1')" \
+  "skips existing files to find next available"
+
+# Test name without numeric suffix (node-shell → node-shell-1)
+assert_eq "node-shell-1" "$(_zsh_snip_duplicate_name 'node-shell')" \
+  "appends -1 to name without numeric suffix"
+
+# Test subdirectory (git/status-1 → git/status-2)
+mkdir -p "$TEST_SNIP_DIR/git"
+touch "$TEST_SNIP_DIR/git/status-1"
+assert_eq "git/status-2" "$(_zsh_snip_duplicate_name 'git/status-1')" \
+  "handles subdirectory paths"
+
+rm -rf "$TEST_SNIP_DIR"
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

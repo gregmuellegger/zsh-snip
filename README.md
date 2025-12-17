@@ -76,6 +76,7 @@ Press `Ctrl+X Ctrl+X` to search snippets with fzf. The snippets are searched thr
 | `Enter` | Replace command line with snippet |
 | `Ctrl+I` | Insert snippet at cursor position |
 | `Ctrl+E` | Edit snippet file in your editor |
+| `Ctrl+N` | Duplicate snippet and edit the copy |
 | `Alt+E` | Insert snippet and open editor to modify before running |
 
 ## Configuration

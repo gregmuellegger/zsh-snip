@@ -269,6 +269,56 @@ rm -rf "$TEST_SNIP_DIR"
 
 
 # =============================================================================
+# Tests for _zsh_snip_insert_at_cursor
+# =============================================================================
+echo ""
+echo "Testing _zsh_snip_insert_at_cursor..."
+
+# Test inserting at cursor position in middle of buffer
+BUFFER="docker run "
+CURSOR=11
+_zsh_snip_insert_at_cursor "--rm -it ubuntu"
+assert_eq "docker run --rm -it ubuntu" "$BUFFER" \
+  "inserts text at end of buffer"
+assert_eq 26 "$CURSOR" \
+  "moves cursor to end of inserted text"
+
+# Test inserting at beginning
+BUFFER="world"
+CURSOR=0
+_zsh_snip_insert_at_cursor "hello "
+assert_eq "hello world" "$BUFFER" \
+  "inserts text at beginning of buffer"
+assert_eq 6 "$CURSOR" \
+  "cursor positioned after inserted text at beginning"
+
+# Test inserting in middle
+BUFFER="git  origin"
+CURSOR=4
+_zsh_snip_insert_at_cursor "push"
+assert_eq "git push origin" "$BUFFER" \
+  "inserts text in middle of buffer"
+assert_eq 8 "$CURSOR" \
+  "cursor positioned after inserted text in middle"
+
+# Test inserting into empty buffer
+BUFFER=""
+CURSOR=0
+_zsh_snip_insert_at_cursor "ls -la"
+assert_eq "ls -la" "$BUFFER" \
+  "inserts into empty buffer"
+assert_eq 6 "$CURSOR" \
+  "cursor at end after insert into empty buffer"
+
+# Test inserting multiline command
+BUFFER="echo start; ; echo end"
+CURSOR=12
+_zsh_snip_insert_at_cursor $'git add .\ngit commit -m "test"'
+assert_eq $'echo start; git add .\ngit commit -m "test"; echo end' "$BUFFER" \
+  "inserts multiline command at cursor"
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

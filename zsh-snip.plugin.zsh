@@ -278,6 +278,14 @@ _zsh_snip_save() {
   zle -M "Saved: $filepath"
 }
 
+# Insert text at cursor position in BUFFER
+# Modifies global BUFFER and CURSOR variables
+_zsh_snip_insert_at_cursor() {
+  local text="$1"
+  BUFFER="${BUFFER:0:$CURSOR}${text}${BUFFER:$CURSOR}"
+  CURSOR=$((CURSOR + ${#text}))
+}
+
 # Search and select snippet (CTRL-X CTRL-R)
 _zsh_snip_search() {
   setopt LOCAL_OPTIONS EXTENDED_GLOB
@@ -338,8 +346,8 @@ _zsh_snip_search() {
       --delimiter='\t' \
       --preview="$preview_cmd" \
       --preview-window=top:50% \
-      --expect=ctrl-e,alt-e \
-      --header="ctrl-e: edit file | alt-e: edit inline" \
+      --expect=ctrl-e,alt-e,ctrl-i \
+      --header="ctrl-e: edit file | alt-e: edit inline | ctrl-i: insert at cursor" \
       --prompt="Snippet> "
   )
 
@@ -387,8 +395,12 @@ _zsh_snip_search() {
       # Use zle edit-command-line to edit buffer (like fc)
       zle edit-command-line
       ;;
+    ctrl-i)
+      # Insert at cursor position without replacing buffer
+      _zsh_snip_insert_at_cursor "$command"
+      ;;
     *)
-      # Insert into buffer
+      # Replace buffer with snippet
       BUFFER="$command"
       CURSOR=$#BUFFER
       ;;

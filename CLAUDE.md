@@ -67,7 +67,8 @@ Run tests: `zsh tests/test_zsh_snip.zsh`
 - `CTRL-X CTRL-X` - Search/expand snippets with fzf
 
 During fzf:
-- `Enter` - Insert snippet
+- `Enter` - Replace buffer with snippet
+- `CTRL-I` - Insert snippet at cursor position
 - `CTRL-E` - Edit snippet file
 - `ALT-E` - Insert and edit inline (like `fc`)
 

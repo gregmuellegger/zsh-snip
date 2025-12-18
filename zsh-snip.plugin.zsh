@@ -428,12 +428,16 @@ _zsh_snip_search() {
         --expect=ctrl-e,alt-e,ctrl-i,ctrl-n,ctrl-d \
         --header="ctrl-e: edit | alt-e: inline | ctrl-i: insert | ctrl-n: dup | ctrl-d: del" \
         --prompt="Snippet> " \
-        --query="$initial_query"
+        --query="$initial_query" \
+        --print-query
     )
 
-    # Parse fzf output: line 1 is key pressed, line 2 is selection
-    key="${fzf_output%%$'\n'*}"
-    selected="${fzf_output#*$'\n'}"
+    # Parse fzf output: line 1 is query, line 2 is key pressed, line 3 is selection
+    # Capture query for next iteration (preserves search filter after edit/delete)
+    initial_query="${fzf_output%%$'\n'*}"
+    local rest="${fzf_output#*$'\n'}"
+    key="${rest%%$'\n'*}"
+    selected="${rest#*$'\n'}"
 
     if [[ -z "$selected" ]]; then
       break

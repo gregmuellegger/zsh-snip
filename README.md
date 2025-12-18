@@ -180,3 +180,21 @@ my-project/
 ```
 
 This is useful for project-specific commands that don't belong in your global snippets. You can commit `.zsh-snip` to version control to share snippets with your team.
+
+## Example Snippets
+
+The [`example-snippets/`](./example-snippets) directory contains snippets demonstrating different usage patterns:
+
+| Snippet | Pattern |
+|---------|---------|
+| `docker/system-df` | Simple one-liner |
+| `docker/rm-dangling-images` | Command substitution with `$(...)` |
+| `check-ssl-certificate` | Multi-line script with `args:` header for prompting |
+| `git-sync` | Chained commands with optional arguments |
+| `templates/gitignore-node` | Heredoc template for generating files |
+
+Copy any of these to your snippets directory to use them:
+
+```zsh
+cp example-snippets/git-sync ~/.local/share/zsh-snip/
+```

@@ -1,0 +1,9 @@
+# name: git-sync
+# description: Add, commit, pull, and push in one command (demonstrates chained commands with optional args)
+# args: [commit message]
+# created: 2025-12-17T17:48:50+00:00
+# ---
+git add . && \
+git commit -m "${*:-Updated files}" && \
+git pull --rebase && \
+git push

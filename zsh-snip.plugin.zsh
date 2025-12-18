@@ -199,6 +199,12 @@ _zsh_snip_read_description() {
   sed -n 's/^# description: //p' "$filepath"
 }
 
+# Read args from a snippet file
+_zsh_snip_read_args() {
+  local filepath="$1"
+  sed -n 's/^# args: //p' "$filepath"
+}
+
 # Wrap command in anonymous function syntax for execution
 # Args: command [name] [description]
 # Output: () { # name\n[# description\n]<command>\n}
@@ -559,21 +565,28 @@ _zsh_snip_search() {
         break
         ;;
       ctrl-x)
-        # Execute as anonymous function with prompted args
-        zle reset-prompt
+        # Execute as anonymous function, prompt for args only if args: header exists
         local desc=$(_zsh_snip_read_description "$filepath")
-        stty sane </dev/tty
-        [[ -n "$desc" ]] && echo "# $desc" >/dev/tty
-        echo -n "$selected: " >/dev/tty
-        local args
-        read -r args </dev/tty
+        local args_hint=$(_zsh_snip_read_args "$filepath")
         local wrapped=$(_zsh_snip_wrap_anon_func "$command" "$selected" "$desc")
-        # Use empty string arg if none provided to trigger function call
-        local full_cmd="${wrapped}${args:-\"\"}"
-        # Add to history
-        print -s "$full_cmd"
-        # Execute (redirect to tty since we're in a zle widget)
-        eval "$full_cmd" </dev/tty >/dev/tty 2>&1
+        if [[ -n "$args_hint" ]]; then
+          # Prompt for args, then execute directly
+          zle reset-prompt
+          stty sane </dev/tty
+          [[ -n "$desc" ]] && echo "# $desc" >/dev/tty
+          echo -n "$selected $args_hint: " >/dev/tty
+          local args
+          read -r args </dev/tty
+          local full_cmd="${wrapped}${args:-\"\"}"
+          print -s "$full_cmd"
+          eval "$full_cmd" </dev/tty >/dev/tty 2>&1
+        else
+          # No args needed - put in buffer and execute via accept-line
+          BUFFER="${wrapped}\"\""
+          CURSOR=$#BUFFER
+          zle reset-prompt
+          zle accept-line
+        fi
         break
         ;;
       *)

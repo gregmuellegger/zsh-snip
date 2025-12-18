@@ -143,6 +143,24 @@ name=$(_zsh_snip_read_name "$TEST_SNIP_DIR/test-1")
 assert_eq "test-1" "$name" \
   "reads name correctly"
 
+# Test reading args (not present)
+args=$(_zsh_snip_read_args "$TEST_SNIP_DIR/test-1")
+assert_eq "" "$args" \
+  "returns empty when no args header"
+
+# Test reading args (present) - create file with args header manually
+cat > "$TEST_SNIP_DIR/test-with-args" <<'EOF'
+# name: test-with-args
+# description: Test with args
+# args: <domain> [port]
+# created: 2024-01-01T00:00:00+00:00
+# ---
+echo "Checking $1:${2:-80}"
+EOF
+args=$(_zsh_snip_read_args "$TEST_SNIP_DIR/test-with-args")
+assert_eq "<domain> [port]" "$args" \
+  "reads args header correctly"
+
 # Test empty description
 _zsh_snip_write "$TEST_SNIP_DIR/test-3" "test-3" "" "echo hello"
 desc=$(_zsh_snip_read_description "$TEST_SNIP_DIR/test-3")

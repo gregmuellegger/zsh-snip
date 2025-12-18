@@ -376,15 +376,25 @@ wrapped=$(_zsh_snip_wrap_anon_func '')
 assert_eq $'() {\n\n} ' "$wrapped" \
   "handles empty command"
 
-# Test with description (second parameter)
-wrapped=$(_zsh_snip_wrap_anon_func 'echo hello' 'Say hello')
-assert_eq $'() {\n# Say hello\necho hello\n} ' "$wrapped" \
-  "includes description as comment when provided"
+# Test with name (second parameter) - appears on opening brace line
+wrapped=$(_zsh_snip_wrap_anon_func 'echo hello' 'my-snippet')
+assert_eq $'() { # my-snippet\necho hello\n} ' "$wrapped" \
+  "includes name as comment on opening brace line"
 
-# Test with empty description (should not add comment line)
-wrapped=$(_zsh_snip_wrap_anon_func 'echo hello' '')
+# Test with name and description (second and third parameters)
+wrapped=$(_zsh_snip_wrap_anon_func 'echo hello' 'my-snippet' 'Say hello')
+assert_eq $'() { # my-snippet\n# Say hello\necho hello\n} ' "$wrapped" \
+  "includes name on first line and description on second line"
+
+# Test with empty name but has description
+wrapped=$(_zsh_snip_wrap_anon_func 'echo hello' '' 'Say hello')
+assert_eq $'() {\n# Say hello\necho hello\n} ' "$wrapped" \
+  "includes description only when name is empty"
+
+# Test with empty name and empty description (should not add comment lines)
+wrapped=$(_zsh_snip_wrap_anon_func 'echo hello' '' '')
 assert_eq $'() {\necho hello\n} ' "$wrapped" \
-  "no comment line when description is empty"
+  "no comment lines when name and description are empty"
 
 
 # =============================================================================

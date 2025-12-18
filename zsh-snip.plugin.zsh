@@ -200,18 +200,27 @@ _zsh_snip_read_description() {
 }
 
 # Wrap command in anonymous function syntax for execution
-# Args: command [description]
-# Output: () {\n[# description\n]<command>\n}
+# Args: command [name] [description]
+# Output: () { # name\n[# description\n]<command>\n}
 _zsh_snip_wrap_anon_func() {
   local command="$1"
-  local description="$2"
+  local name="$2"
+  local description="$3"
   # Strip trailing newline to avoid doubling
   command="${command%$'\n'}"
-  if [[ -n "$description" ]]; then
-    printf '() {\n# %s\n%s\n} ' "$description" "$command"
+
+  # Build the opening line
+  if [[ -n "$name" ]]; then
+    printf '() { # %s\n' "$name"
   else
-    printf '() {\n%s\n} ' "$command"
+    printf '() {\n'
   fi
+
+  # Add description comment if present
+  [[ -n "$description" ]] && printf '# %s\n' "$description"
+
+  # Add command and closing
+  printf '%s\n} ' "$command"
 }
 
 # Read first line of command, truncated for display
@@ -544,7 +553,7 @@ _zsh_snip_search() {
       alt-x)
         # Wrap in anonymous function and place in buffer for manual args
         local desc=$(_zsh_snip_read_description "$filepath")
-        local wrapped=$(_zsh_snip_wrap_anon_func "$command" "$desc")
+        local wrapped=$(_zsh_snip_wrap_anon_func "$command" "$selected" "$desc")
         BUFFER="$wrapped"
         CURSOR=$#BUFFER
         break
@@ -558,7 +567,7 @@ _zsh_snip_search() {
         echo -n "$selected: " >/dev/tty
         local args
         read -r args </dev/tty
-        local wrapped=$(_zsh_snip_wrap_anon_func "$command")
+        local wrapped=$(_zsh_snip_wrap_anon_func "$command" "$selected" "$desc")
         # Use empty string arg if none provided to trigger function call
         local full_cmd="${wrapped}${args:-\"\"}"
         # Add to history

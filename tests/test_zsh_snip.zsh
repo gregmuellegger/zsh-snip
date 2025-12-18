@@ -351,6 +351,43 @@ rm -rf "$TEST_SNIP_DIR"
 
 
 # =============================================================================
+# Tests for _zsh_snip_wrap_anon_func
+# =============================================================================
+echo ""
+echo "Testing _zsh_snip_wrap_anon_func..."
+
+# Test single-line command
+wrapped=$(_zsh_snip_wrap_anon_func 'echo hello')
+assert_eq $'() {\necho hello\n} ' "$wrapped" \
+  "wraps single-line command in anonymous function"
+
+# Test multi-line command (script)
+wrapped=$(_zsh_snip_wrap_anon_func $'DOMAIN=$1\necho "Checking $DOMAIN"')
+assert_eq $'() {\nDOMAIN=$1\necho "Checking $DOMAIN"\n} ' "$wrapped" \
+  "wraps multi-line script in anonymous function"
+
+# Test command with trailing newline (should not double newline)
+wrapped=$(_zsh_snip_wrap_anon_func $'echo hello\n')
+assert_eq $'() {\necho hello\n} ' "$wrapped" \
+  "handles trailing newline without doubling"
+
+# Test empty command
+wrapped=$(_zsh_snip_wrap_anon_func '')
+assert_eq $'() {\n\n} ' "$wrapped" \
+  "handles empty command"
+
+# Test with description (second parameter)
+wrapped=$(_zsh_snip_wrap_anon_func 'echo hello' 'Say hello')
+assert_eq $'() {\n# Say hello\necho hello\n} ' "$wrapped" \
+  "includes description as comment when provided"
+
+# Test with empty description (should not add comment line)
+wrapped=$(_zsh_snip_wrap_anon_func 'echo hello' '')
+assert_eq $'() {\necho hello\n} ' "$wrapped" \
+  "no comment line when description is empty"
+
+
+# =============================================================================
 # Tests for _zsh_snip_find_local_dir
 # =============================================================================
 echo ""

@@ -71,6 +71,8 @@ Run tests: `zsh tests/test_zsh_snip.zsh`
 
 During fzf (snippets show `~` prefix for global, `!` for local):
 - `Enter` - Replace buffer with snippet
+- `CTRL-X` - Execute as anonymous function (prompts for args, adds to history)
+- `ALT-X` - Wrap as anonymous function in buffer for manual args
 - `CTRL-I` - Insert snippet at cursor position
 - `CTRL-E` - Edit snippet file
 - `CTRL-N` - Duplicate snippet and edit the copy
@@ -81,5 +83,20 @@ During fzf (snippets show `~` prefix for global, `!` for local):
 
 - `zsh-snip.plugin.zsh` - Main plugin
 - `tests/test_zsh_snip.zsh` - Test suite
-- `SPEC.md` - Detailed specification
 - `README.md` - User documentation
+
+## Common Pitfalls
+
+### `vared` doesn't work inside zle widgets
+`vared` (zsh's variable editor with readline support) silently exits when called from within a zle widget. This is because the widget is already running zle, and vared tries to take over but conflicts with the existing zle state.
+
+**Workaround:** Use basic `read </dev/tty` instead. This means no arrow keys or CTRL shortcuts - only backspace works. For full editing, put content in `$BUFFER` and let the user edit it there.
+
+### Output doesn't appear from zle widgets
+`echo` and command output may not reach the terminal inside a zle widget context.
+
+**Fix:** Redirect explicitly to `/dev/tty`:
+```zsh
+echo "message" >/dev/tty
+eval "$cmd" </dev/tty >/dev/tty 2>&1
+```

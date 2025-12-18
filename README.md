@@ -79,11 +79,56 @@ Press `Ctrl+X Ctrl+X` to search snippets with fzf. Both global and local snippet
 | Key | Action |
 |-----|--------|
 | `Enter` | Replace command line with snippet |
+| `Ctrl+X` | Execute snippet as script with arguments (see below) |
+| `Alt+X` | Wrap snippet as anonymous function for manual args |
 | `Ctrl+I` | Insert snippet at cursor position |
 | `Ctrl+E` | Edit snippet file in your editor |
 | `Ctrl+N` | Duplicate snippet and edit the copy |
 | `Ctrl+D` | Delete snippet (asks for confirmation) |
 | `Alt+E` | Insert snippet and open editor to modify before running |
+
+### Execute snippets as scripts
+
+You can save multi-line scripts as snippets and execute them with arguments using `Ctrl+X`:
+
+```bash
+# name: check-ssl
+# description: Check SSL certificate for a domain
+# ---
+DOMAIN=$1
+if [ -z "$DOMAIN" ]; then
+  echo "Usage: check-ssl <domain>"
+  return 1
+fi
+echo "Checking $DOMAIN ..."
+echo | openssl s_client -showcerts -servername $DOMAIN -connect $DOMAIN:443 2>/dev/null \
+  | openssl x509 -inform pem -noout -text
+```
+
+When you select this snippet and press `Ctrl+X`, you'll see:
+
+```
+# Check SSL certificate for a domain
+check-ssl: example.com
+```
+
+Type your arguments and press Enter. The snippet runs immediately and is added to your history.
+
+**How it works:** The snippet is wrapped in a zsh anonymous function `() { ... } args`, which allows positional parameters (`$1`, `$2`, etc.) to work.
+
+**Using `Alt+X`:** If you prefer to see/edit the command before running, `Alt+X` pastes the wrapped function into your command line with the description as a comment:
+
+```zsh
+() {
+# Check SSL certificate for a domain
+DOMAIN=$1
+...
+}
+```
+
+You can then add arguments and press Enter.
+
+**Note:** Use `return` instead of `exit` in scripts intended for this feature. Using `exit` will close your shell session.
 
 ## Configuration
 

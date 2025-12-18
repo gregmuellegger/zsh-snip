@@ -199,6 +199,21 @@ _zsh_snip_read_description() {
   sed -n 's/^# description: //p' "$filepath"
 }
 
+# Wrap command in anonymous function syntax for execution
+# Args: command [description]
+# Output: () {\n[# description\n]<command>\n}
+_zsh_snip_wrap_anon_func() {
+  local command="$1"
+  local description="$2"
+  # Strip trailing newline to avoid doubling
+  command="${command%$'\n'}"
+  if [[ -n "$description" ]]; then
+    printf '() {\n# %s\n%s\n} ' "$description" "$command"
+  else
+    printf '() {\n%s\n} ' "$command"
+  fi
+}
+
 # Read first line of command, truncated for display
 _zsh_snip_read_command_preview() {
   local filepath="$1"
@@ -425,8 +440,8 @@ _zsh_snip_search() {
         --with-nth=1,2,3 \
         --preview="$preview_cmd" \
         --preview-window=top:50% \
-        --expect=ctrl-e,alt-e,ctrl-i,ctrl-n,ctrl-d \
-        --header="ctrl-e: edit | alt-e: inline | ctrl-i: insert | ctrl-n: dup | ctrl-d: del" \
+        --expect=ctrl-e,alt-e,ctrl-i,ctrl-n,ctrl-d,ctrl-x,alt-x \
+        --header="ctrl-x: exec | alt-x: wrap | ctrl-e: edit | alt-e: inline | ctrl-i: insert | ctrl-n: dup | ctrl-d: del" \
         --prompt="Snippet> " \
         --query="$initial_query" \
         --print-query
@@ -524,6 +539,32 @@ _zsh_snip_search() {
       ctrl-i)
         # Insert at cursor position without replacing buffer
         _zsh_snip_insert_at_cursor "$command"
+        break
+        ;;
+      alt-x)
+        # Wrap in anonymous function and place in buffer for manual args
+        local desc=$(_zsh_snip_read_description "$filepath")
+        local wrapped=$(_zsh_snip_wrap_anon_func "$command" "$desc")
+        BUFFER="$wrapped"
+        CURSOR=$#BUFFER
+        break
+        ;;
+      ctrl-x)
+        # Execute as anonymous function with prompted args
+        zle reset-prompt
+        local desc=$(_zsh_snip_read_description "$filepath")
+        stty sane </dev/tty
+        [[ -n "$desc" ]] && echo "# $desc" >/dev/tty
+        echo -n "$selected: " >/dev/tty
+        local args
+        read -r args </dev/tty
+        local wrapped=$(_zsh_snip_wrap_anon_func "$command")
+        # Use empty string arg if none provided to trigger function call
+        local full_cmd="${wrapped}${args:-\"\"}"
+        # Add to history
+        print -s "$full_cmd"
+        # Execute (redirect to tty since we're in a zle widget)
+        eval "$full_cmd" </dev/tty >/dev/tty 2>&1
         break
         ;;
       *)

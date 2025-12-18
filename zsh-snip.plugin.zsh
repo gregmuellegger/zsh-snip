@@ -207,7 +207,7 @@ _zsh_snip_read_args() {
 
 # Wrap command in anonymous function syntax for execution
 # Args: command [name] [description]
-# Output: () { # name\n[# description\n]<command>\n}
+# Output: () { # name: description\n<command>\n}
 _zsh_snip_wrap_anon_func() {
   local command="$1"
   local name="$2"
@@ -215,15 +215,16 @@ _zsh_snip_wrap_anon_func() {
   # Strip trailing newline to avoid doubling
   command="${command%$'\n'}"
 
-  # Build the opening line
-  if [[ -n "$name" ]]; then
+  # Build the opening line with name and/or description
+  if [[ -n "$name" && -n "$description" ]]; then
+    printf '() { # %s: %s\n' "$name" "$description"
+  elif [[ -n "$name" ]]; then
     printf '() { # %s\n' "$name"
+  elif [[ -n "$description" ]]; then
+    printf '() { # %s\n' "$description"
   else
     printf '() {\n'
   fi
-
-  # Add description comment if present
-  [[ -n "$description" ]] && printf '# %s\n' "$description"
 
   # Add command and closing
   printf '%s\n} ' "$command"

@@ -35,12 +35,15 @@ Snippets have this header structure:
 ```
 # name: <filename>
 # description: <optional description>
+# args: <argument hints for ctrl-x prompt>
 # created: <ISO 8601 timestamp>
 # ---
 <command content>
 ```
 
 The `name` field controls the filename - changing it renames the file on save.
+
+The `args` field is optional - when present, ctrl-x prompts for arguments using this as the hint (e.g., `<domain> [port]`). Without it, ctrl-x executes immediately.
 
 Subfolders are supported, so a name of `<dir>/<subdir>/<filename>` should be supported (even if the dir/subdir does not exist yet)
 

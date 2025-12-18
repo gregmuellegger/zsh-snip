@@ -198,3 +198,15 @@ Copy any of these to your snippets directory to use them:
 ```zsh
 cp example-snippets/git-sync ~/.local/share/zsh-snip/
 ```
+
+## Claude Code Skill
+
+A [Claude Code skill](https://code.claude.com/docs/en/skills) is included that teaches Claude how to create zsh-snip snippets. Install it to let Claude generate snippets on request:
+
+```zsh
+mkdir -p ~/.claude/skills/zsh-snip
+curl -fsSL https://raw.githubusercontent.com/gregmuellegger/zsh-snip/main/.claude/skills/zsh-snip/SKILL.md \
+  -o ~/.claude/skills/zsh-snip/SKILL.md
+```
+
+Then ask Claude things like "create a snippet that..." and it will write properly formatted snippets to your snippets directory.

@@ -127,6 +127,16 @@ start_tmux_session() {
     export ZSH_SNIP_DIR="$TEST_DIR/snippets"
     mkdir -p "$ZSH_SNIP_DIR"
 
+    # Get full path to zsh (needed for CI environments where PATH might differ)
+    local zsh_path
+    zsh_path=$(command -v zsh)
+
+    # Create .zshenv to skip global compinit (runs before .zshrc)
+    cat > "$TEST_DIR/.zshenv" <<'ZSHENV'
+# Skip compinit security check that blocks in CI
+skip_global_compinit=1
+ZSHENV
+
     # Create .zshrc for the test shell (ZDOTDIR approach)
     cat > "$TEST_DIR/.zshrc" <<ZSHRC
 # Disable flow control so C-s and C-q keybindings work
@@ -145,8 +155,9 @@ source "$PROJECT_DIR/zsh-snip.plugin.zsh"
 ZSHRC
 
     # Start tmux session with ZDOTDIR pointing to our test dir
+    # Use full path to zsh to work in CI environments
     tmux new-session -d -s "$TMUX_SESSION" -x 120 -y 30 \
-        "ZDOTDIR='$TEST_DIR' ZSH_SNIP_DIR='$ZSH_SNIP_DIR' zsh -i"
+        "ZDOTDIR='$TEST_DIR' ZSH_SNIP_DIR='$ZSH_SNIP_DIR' $zsh_path -i"
 
     # Wait for shell to be ready (look for PS1)
     sleep 1
@@ -166,6 +177,10 @@ wait_for_prompt() {
         sleep 0.1
         i=$((i + 1))
     done
+    # Debug output on failure
+    echo "ERROR: Timed out waiting for prompt" >&2
+    echo "Pane content was:" >&2
+    tmux capture-pane -t "$TMUX_SESSION" -p 2>&1 | head -20 >&2
     return 1
 }
 

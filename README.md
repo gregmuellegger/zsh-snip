@@ -4,7 +4,7 @@ A lightweight zsh snippet manager using fzf for fuzzy search.
 
 Highlights:
 
-- Save current prompt, `CTRL-x CTRL-s` (global) or `CTRL-x CTRL-p` (project-local)
+- Save current prompt, `CTRL-x CTRL-s` (user) or `CTRL-x CTRL-p` (project-local)
 - Search snippets with `fzf`
 - Store each snippet in a separate file for easy editing
 - Supports multi-line snippets
@@ -46,7 +46,7 @@ source ~/.local/share/zsh-snip.plugin.zsh
 
 ### Save a snippet
 
-Press `Ctrl+X Ctrl+S` to save a global snippet, or `Ctrl+X Ctrl+P` to save a project-local snippet. Your editor opens with the snippet file - edit the name to something memorable, then save and quit.
+Press `Ctrl+X Ctrl+S` to save a user snippet, or `Ctrl+X Ctrl+P` to save a project-local snippet. Your editor opens with the snippet file - edit the name to something memorable, then save and quit.
 
 **Tip:** Add a trailing comment to your command and it becomes the description automatically:
 
@@ -70,8 +70,8 @@ E.g. change to something like `node-shell` or `docker/node-shell`
 
 ### Find a snippet
 
-Press `Ctrl+X Ctrl+X` to search snippets with fzf. Both global and local snippets are shown:
-- `~` prefix: global snippets (from `~/.local/share/zsh-snip`)
+Press `Ctrl+X Ctrl+X` to search snippets with fzf. Both user and local snippets are shown:
+- `~` prefix: user snippets (from `~/.local/share/zsh-snip`)
 - `!` prefix: project-local snippets (from `.zsh-snip` in project directory)
 
 **Tip:** Your current command line is used as the initial search query. Type `docker` then `Ctrl+X Ctrl+X` to jump straight to your docker snippets.
@@ -142,7 +142,7 @@ You can then add arguments and press Enter.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ZSH_SNIP_DIR` | `~/.local/share/zsh-snip` | Where global snippets are stored (respects `$XDG_DATA_HOME`) |
+| `ZSH_SNIP_DIR` | `~/.local/share/zsh-snip` | Where user snippets are stored (respects `$XDG_DATA_HOME`) |
 | `ZSH_SNIP_EDITOR` | `$EDITOR` or `vim` | Editor for snippet editing |
 | `ZSH_SNIP_LOCAL_PATH` | `.zsh-snip` | Directory name for project-local snippets (set to empty string to disable) |
 
@@ -179,7 +179,7 @@ my-project/
 └── package.json
 ```
 
-This is useful for project-specific commands that don't belong in your global snippets. You can commit `.zsh-snip` to version control to share snippets with your team.
+This is useful for project-specific commands that don't belong in your user snippets. You can commit `.zsh-snip` to version control to share snippets with your team.
 
 ## CLI Interface
 
@@ -201,8 +201,6 @@ zsh-snip exec <name> [args] # Execute snippet with arguments
 | `--names-only` | list | Output only snippet names |
 | `--full-path` | list | Show full absolute paths |
 | `--no-color` | list | Disable colored output |
-
-Output is automatically aligned in columns with colors (cyan for name, yellow for path, white for description). Colors are disabled when output is piped or redirected.
 
 ### Examples
 

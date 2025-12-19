@@ -48,7 +48,7 @@ The `args` field is optional - when present, ctrl-x prompts for arguments using 
 Subfolders are supported, so a name of `<dir>/<subdir>/<filename>` should be supported (even if the dir/subdir does not exist yet)
 
 ### Storage location
-Global snippets use XDG Base Directory spec:
+User snippets use XDG Base Directory spec:
 ```zsh
 ${XDG_DATA_HOME:-$HOME/.local/share}/zsh-snip
 ```
@@ -92,11 +92,11 @@ TEST_FILTER="save" zsh tests/test_e2e.zsh
 
 ## Keybindings
 
-- `CTRL-X CTRL-S` - Save current command as global snippet
+- `CTRL-X CTRL-S` - Save current command as user snippet
 - `CTRL-X CTRL-P` - Save current command as project-local snippet
 - `CTRL-X CTRL-X` - Search/expand snippets with fzf
 
-During fzf (snippets show `~` prefix for global, `!` for local):
+During fzf (snippets show `~` prefix for user, `!` for local):
 - `Enter` - Replace buffer with snippet
 - `CTRL-X` - Execute as anonymous function (prompts for args, adds to history)
 - `ALT-X` - Wrap as anonymous function in buffer for manual args

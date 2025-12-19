@@ -45,7 +45,7 @@ Use angle brackets `<required>` and square brackets `[optional]` in hints:
 
 ## Storage Locations
 
-### Global Snippets
+### User Snippets
 ```
 ${XDG_DATA_HOME:-$HOME/.local/share}/zsh-snip/
 ```

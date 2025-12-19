@@ -392,7 +392,7 @@ _zsh_snip_search() {
   local command
   local preview_cmd
   local fzf_output
-  local global_dir="$ZSH_SNIP_DIR"
+  local user_dir="$ZSH_SNIP_DIR"
   local local_dir=$(_zsh_snip_find_local_dir)
   # Pre-fill fzf query with current buffer content
   local initial_query="$BUFFER"
@@ -407,13 +407,13 @@ _zsh_snip_search() {
 
   # Loop to allow returning to fzf after delete
   while true; do
-    # Gather snippets from both global and local directories
+    # Gather snippets from both user and local directories
     # N = nullglob (empty array if no matches), . = regular files only
-    local global_files=("$global_dir"/**/*(N.))
+    local user_files=("$user_dir"/**/*(N.))
     local local_files=()
     [[ -n "$local_dir" ]] && local_files=("$local_dir"/**/*(N.))
 
-    if (( ${#global_files[@]} == 0 && ${#local_files[@]} == 0 )); then
+    if (( ${#user_files[@]} == 0 && ${#local_files[@]} == 0 )); then
       zle -M "zsh-snip: No snippets found"
       break
     fi
@@ -433,10 +433,10 @@ _zsh_snip_search() {
     local fzf_list
     fzf_list=$(
       {
-        # Global snippets (prefix: ~)
-        for f in "${global_files[@]}"; do
+        # User snippets (prefix: ~)
+        for f in "${user_files[@]}"; do
           [[ -f "$f" ]] || continue
-          local name="${f#$global_dir/}"
+          local name="${f#$user_dir/}"
           [[ "$name" == .* || "$name" == */.* ]] && continue
           local desc=$(_zsh_snip_read_description "$f")
           local cmd_preview=$(_zsh_snip_read_command_preview "$f" "$cmd_width")
@@ -499,7 +499,7 @@ _zsh_snip_search() {
     # Get the base directory for this snippet
     local snip_dir
     if [[ "$display_name" == "~ "* ]]; then
-      snip_dir="$global_dir"
+      snip_dir="$user_dir"
     else
       snip_dir="$local_dir"
     fi

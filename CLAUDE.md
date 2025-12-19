@@ -98,6 +98,7 @@ TEST_FILTER="save" zsh tests/test_e2e.zsh
 
 During fzf (snippets show `~` prefix for user, `!` for local):
 - `Enter` - Replace buffer with snippet
+- `CTRL-Y` - Copy snippet to clipboard
 - `CTRL-X` - Execute as anonymous function (prompts for args, adds to history)
 - `ALT-X` - Wrap as anonymous function in buffer for manual args
 - `CTRL-I` - Insert snippet at cursor position
@@ -114,6 +115,7 @@ The `zsh-snip` function provides programmatic access to snippets:
 zsh-snip list [filter]      # List snippets (glob pattern filter)
 zsh-snip expand <name>      # Output snippet content (no header)
 zsh-snip exec <name> [args] # Execute snippet with arguments
+zsh-snip yank <name>        # Copy snippet content to clipboard
 ```
 
 Options:
@@ -125,7 +127,9 @@ Implementation details:
 - `_zsh_snip_cli_list()` - Handles listing with deduplication (local wins)
 - `_zsh_snip_cli_expand()` - Outputs raw command content
 - `_zsh_snip_cli_exec()` - Wraps in anonymous function, adds to history
+- `_zsh_snip_cli_yank()` - Copies content to clipboard via detected command
 - `_zsh_snip_cli_resolve()` - Resolves name to filepath with scope handling
+- `_zsh_snip_get_yank_cmd()` - Auto-detects clipboard command (pbcopy/clip.exe/wl-copy/xclip/xsel)
 
 ## Files
 

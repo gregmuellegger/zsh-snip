@@ -79,6 +79,7 @@ Press `Ctrl+X Ctrl+X` to search snippets with fzf. Both user and local snippets 
 | Key | Action |
 |-----|--------|
 | `Enter` | Replace command line with snippet |
+| `Ctrl+Y` | Copy snippet to clipboard |
 | `Ctrl+X` | Execute snippet as script with arguments (see below) |
 | `Alt+X` | Wrap snippet as anonymous function for manual args |
 | `Ctrl+I` | Insert snippet at cursor position |
@@ -145,6 +146,7 @@ You can then add arguments and press Enter.
 | `ZSH_SNIP_DIR` | `~/.local/share/zsh-snip` | Where user snippets are stored (respects `$XDG_DATA_HOME`) |
 | `ZSH_SNIP_EDITOR` | `$EDITOR` or `vim` | Editor for snippet editing |
 | `ZSH_SNIP_LOCAL_PATH` | `.zsh-snip` | Directory name for project-local snippets (set to empty string to disable) |
+| `ZSH_SNIP_YANK_CMD` | auto-detected | Clipboard command for `Ctrl+Y` (set to empty string to disable) |
 
 ## Storage
 
@@ -190,6 +192,7 @@ zsh-snip list [filter]      # List snippets (filter is glob pattern)
 zsh-snip path <name>        # Show full path to snippet file
 zsh-snip expand <name>      # Output snippet content (no header)
 zsh-snip exec <name> [args] # Execute snippet with arguments
+zsh-snip yank <name>        # Copy snippet content to clipboard
 ```
 
 ### Options

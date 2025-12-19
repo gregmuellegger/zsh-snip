@@ -599,6 +599,83 @@ SNIPPET
 }
 
 # =============================================================================
+# Test: Search with CTRL-Y yanks to clipboard
+# =============================================================================
+test_search_ctrl_y_yanks_to_clipboard() {
+    log ""
+    log "Testing: Search with CTRL-Y yanks snippet to clipboard..."
+    setup_test_env
+
+    create_test_snippet "yank-me" "Test yank" "echo 'yanked content'"
+
+    # Set up mock clipboard command
+    export YANK_CAPTURE_FILE="$TEST_DIR/logs/yanked_content"
+    cat > "$TEST_DIR/bin/mock-clipboard" <<CLIP
+#!/bin/bash
+cat > "$TEST_DIR/logs/yanked_content"
+CLIP
+    chmod +x "$TEST_DIR/bin/mock-clipboard"
+    export ZSH_SNIP_YANK_CMD="$TEST_DIR/bin/mock-clipboard"
+
+    export MOCK_FZF_OUTPUT="yank\nctrl-y\n~ yank-me\tTest yank\techo 'yanked content'\t$ZSH_SNIP_DIR/yank-me"
+
+    BUFFER=""
+    CURSOR=0
+
+    _zsh_snip_search
+
+    # Verify content was yanked
+    local yanked=$(cat "$TEST_DIR/logs/yanked_content" 2>/dev/null)
+    assert_eq "echo 'yanked content'" "$yanked" "snippet content was yanked to clipboard"
+
+    # Verify buffer was not modified
+    assert_eq "" "$BUFFER" "buffer remains unchanged after yank"
+
+    # Verify message was shown
+    local msg=$(get_last_message)
+    assert_contains "$msg" "Copied" "shows copied message"
+
+    teardown_test_env
+}
+
+# =============================================================================
+# Test: CTRL-Y not shown when clipboard unavailable
+# =============================================================================
+test_search_ctrl_y_hidden_when_no_clipboard() {
+    log ""
+    log "Testing: CTRL-Y hint hidden when no clipboard available..."
+    setup_test_env
+
+    create_test_snippet "test-snip" "Test" "echo test"
+
+    # Disable clipboard
+    export ZSH_SNIP_YANK_CMD=""
+
+    # We need a more sophisticated mock fzf to capture the header
+    cat > "$TEST_DIR/bin/fzf" <<FZF
+#!/bin/bash
+# Capture all arguments for inspection
+echo "\$*" > "$TEST_DIR/logs/fzf_args.log"
+# Read input
+cat > "$TEST_DIR/logs/fzf_input.log"
+# Return empty (cancelled)
+echo ""
+echo ""
+echo ""
+FZF
+    chmod +x "$TEST_DIR/bin/fzf"
+
+    _zsh_snip_search
+
+    # Check fzf args don't include ctrl-y
+    local fzf_args=$(cat "$TEST_DIR/logs/fzf_args.log" 2>/dev/null)
+    [[ "$fzf_args" != *"ctrl-y"* ]]
+    assert_eq 0 $? "ctrl-y not in fzf expect list when clipboard unavailable"
+
+    teardown_test_env
+}
+
+# =============================================================================
 # Run all tests
 # =============================================================================
 log "╔════════════════════════════════════════╗"
@@ -620,6 +697,8 @@ test_duplicate_snippet
 test_subdirectory_snippets
 test_empty_buffer_rejected
 test_snippet_with_args_header
+test_search_ctrl_y_yanks_to_clipboard
+test_search_ctrl_y_hidden_when_no_clipboard
 
 # =============================================================================
 # Summary

@@ -5,6 +5,50 @@
 ZSH_SNIP_DIR="${ZSH_SNIP_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/zsh-snip}"
 ZSH_SNIP_EDITOR="${ZSH_SNIP_EDITOR:-${EDITOR:-vim}}"
 ZSH_SNIP_LOCAL_PATH="${ZSH_SNIP_LOCAL_PATH:-.zsh-snip}"
+# ZSH_SNIP_YANK_CMD - auto-detected if unset, set empty to disable
+
+# Detect clipboard command for yank functionality
+# Returns: clipboard command string, or empty if unavailable/disabled
+_zsh_snip_get_yank_cmd() {
+  # If explicitly set (even to empty), use that value
+  if [[ -n "${ZSH_SNIP_YANK_CMD+x}" ]]; then
+    echo "$ZSH_SNIP_YANK_CMD"
+    return
+  fi
+
+  # Auto-detect based on environment
+  # macOS
+  if command -v pbcopy &>/dev/null; then
+    echo "pbcopy"
+    return
+  fi
+
+  # WSL
+  if command -v clip.exe &>/dev/null; then
+    echo "clip.exe"
+    return
+  fi
+
+  # Wayland
+  if [[ -n "$WAYLAND_DISPLAY" ]] && command -v wl-copy &>/dev/null; then
+    echo "wl-copy"
+    return
+  fi
+
+  # X11
+  if [[ -n "$DISPLAY" ]]; then
+    if command -v xclip &>/dev/null; then
+      echo "xclip -selection clipboard"
+      return
+    elif command -v xsel &>/dev/null; then
+      echo "xsel --clipboard --input"
+      return
+    fi
+  fi
+
+  # No clipboard available
+  echo ""
+}
 
 # Ensure snippet directory exists
 [[ -d "$ZSH_SNIP_DIR" ]] || mkdir -p "$ZSH_SNIP_DIR"
@@ -460,13 +504,22 @@ _zsh_snip_search() {
       } | column -t -s $'\x1f' -o $'\t'
     )
 
+    # Check if yank/clipboard is available
+    local yank_cmd=$(_zsh_snip_get_yank_cmd)
+    local fzf_expect="ctrl-e,alt-e,ctrl-i,ctrl-n,ctrl-d,ctrl-x,alt-x"
+    local fzf_header="ctrl-x: exec | alt-x: wrap | ctrl-e: edit | alt-e: inline | ctrl-i: insert | ctrl-n: dup | ctrl-d: del"
+    if [[ -n "$yank_cmd" ]]; then
+      fzf_expect="$fzf_expect,ctrl-y"
+      fzf_header="ctrl-y: yank | $fzf_header"
+    fi
+
     fzf_output=$(echo "$fzf_list" | fzf \
         --delimiter=$'\t' \
         --with-nth=1,2,3 \
         --preview="$preview_cmd" \
         --preview-window=top:50% \
-        --expect=ctrl-e,alt-e,ctrl-i,ctrl-n,ctrl-d,ctrl-x,alt-x \
-        --header="ctrl-x: exec | alt-x: wrap | ctrl-e: edit | alt-e: inline | ctrl-i: insert | ctrl-n: dup | ctrl-d: del" \
+        --expect="$fzf_expect" \
+        --header="$fzf_header" \
         --prompt="Snippet> " \
         --query="$initial_query" \
         --print-query
@@ -579,6 +632,14 @@ _zsh_snip_search() {
         local wrapped=$(_zsh_snip_wrap_anon_func "$command" "$selected" "$desc")
         BUFFER="$wrapped"
         CURSOR=$#BUFFER
+        break
+        ;;
+      ctrl-y)
+        # Yank/copy snippet content to clipboard
+        if [[ -n "$yank_cmd" ]]; then
+          printf '%s' "$command" | eval "$yank_cmd"
+          zle -M "Copied '$selected' to clipboard"
+        fi
         break
         ;;
       ctrl-x)
@@ -711,6 +772,7 @@ zsh-snip() {
     path)   _zsh_snip_cli_path "$@" ;;
     expand) _zsh_snip_cli_expand "$@" ;;
     exec)   _zsh_snip_cli_exec "$@" ;;
+    yank)   _zsh_snip_cli_yank "$@" ;;
     "")
       echo "Usage: zsh-snip <command> [options]" >&2
       echo "" >&2
@@ -719,6 +781,7 @@ zsh-snip() {
       echo "  path <name>        Show full path to snippet file" >&2
       echo "  expand <name>      Output snippet content" >&2
       echo "  exec <name> [args] Execute snippet with arguments" >&2
+      echo "  yank <name>        Copy snippet content to clipboard" >&2
       echo "" >&2
       echo "Options:" >&2
       echo "  --user            Only user snippets" >&2
@@ -998,6 +1061,57 @@ _zsh_snip_cli_exec() {
 
   # Execute
   eval "$full_cmd"
+}
+
+# Yank snippet - copy content to clipboard
+_zsh_snip_cli_yank() {
+  local name=""
+  local scope=""
+
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --user)  scope="user" ;;
+      --local) scope="local" ;;
+      -*)
+        echo "zsh-snip yank: unknown option '$1'" >&2
+        return 1
+        ;;
+      *)
+        if [[ -z "$name" ]]; then
+          name="$1"
+        else
+          echo "zsh-snip yank: unexpected argument '$1'" >&2
+          return 1
+        fi
+        ;;
+    esac
+    shift
+  done
+
+  if [[ -z "$name" ]]; then
+    echo "zsh-snip yank: missing snippet name" >&2
+    return 1
+  fi
+
+  # Check clipboard command availability
+  local yank_cmd=$(_zsh_snip_get_yank_cmd)
+  if [[ -z "$yank_cmd" ]]; then
+    echo "zsh-snip yank: no clipboard command available" >&2
+    echo "Set ZSH_SNIP_YANK_CMD or install xclip/wl-copy/pbcopy" >&2
+    return 1
+  fi
+
+  local filepath=$(_zsh_snip_cli_resolve "$name" "$scope")
+  if [[ -z "$filepath" ]]; then
+    echo "zsh-snip yank: '$name' not found" >&2
+    return 1
+  fi
+
+  local command=$(_zsh_snip_read_command "$filepath")
+
+  # Pipe to clipboard command (no trailing newline)
+  printf '%s' "$command" | eval "$yank_cmd"
 }
 
 # Resolve snippet name to filepath

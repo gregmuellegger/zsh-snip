@@ -744,6 +744,187 @@ rm -rf "$CLI_TEST_DIR"
 
 
 # =============================================================================
+# Tests for _zsh_snip_get_yank_cmd
+# =============================================================================
+log ""
+log "Testing _zsh_snip_get_yank_cmd..."
+
+# Save original values
+ORIG_ZSH_SNIP_YANK_CMD="${ZSH_SNIP_YANK_CMD:-__unset__}"
+ORIG_DISPLAY="${DISPLAY:-__unset__}"
+ORIG_WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-__unset__}"
+
+# Helper to reset environment
+_reset_yank_env() {
+  unset ZSH_SNIP_YANK_CMD DISPLAY WAYLAND_DISPLAY
+}
+
+# Test: explicit ZSH_SNIP_YANK_CMD is used
+_reset_yank_env
+ZSH_SNIP_YANK_CMD="my-custom-copy"
+assert_eq "my-custom-copy" "$(_zsh_snip_get_yank_cmd)" \
+  "uses explicit ZSH_SNIP_YANK_CMD"
+
+# Test: empty ZSH_SNIP_YANK_CMD disables yank
+_reset_yank_env
+ZSH_SNIP_YANK_CMD=""
+assert_eq "" "$(_zsh_snip_get_yank_cmd)" \
+  "empty ZSH_SNIP_YANK_CMD disables yank"
+
+# Test: X11 detection with xclip available
+_reset_yank_env
+DISPLAY=":0"
+# Create mock xclip
+TEST_BIN_DIR=$(mktemp -d)
+cat > "$TEST_BIN_DIR/xclip" <<'EOF'
+#!/bin/sh
+echo "mock xclip"
+EOF
+chmod +x "$TEST_BIN_DIR/xclip"
+PATH="$TEST_BIN_DIR:$PATH"
+result=$(_zsh_snip_get_yank_cmd)
+assert_eq "xclip -selection clipboard" "$result" \
+  "detects X11 with xclip"
+rm -rf "$TEST_BIN_DIR"
+
+# Test: Wayland detection with wl-copy available
+_reset_yank_env
+WAYLAND_DISPLAY="wayland-0"
+TEST_BIN_DIR=$(mktemp -d)
+cat > "$TEST_BIN_DIR/wl-copy" <<'EOF'
+#!/bin/sh
+echo "mock wl-copy"
+EOF
+chmod +x "$TEST_BIN_DIR/wl-copy"
+PATH="$TEST_BIN_DIR:$PATH"
+result=$(_zsh_snip_get_yank_cmd)
+assert_eq "wl-copy" "$result" \
+  "detects Wayland with wl-copy"
+rm -rf "$TEST_BIN_DIR"
+
+# Test: no display, no clipboard command returns empty
+_reset_yank_env
+# Ensure no clipboard commands in PATH for this test
+PATH="/usr/bin:/bin"
+result=$(_zsh_snip_get_yank_cmd)
+assert_eq "" "$result" \
+  "returns empty when no clipboard available"
+
+# Restore original values
+if [[ "$ORIG_ZSH_SNIP_YANK_CMD" != "__unset__" ]]; then
+  ZSH_SNIP_YANK_CMD="$ORIG_ZSH_SNIP_YANK_CMD"
+else
+  unset ZSH_SNIP_YANK_CMD
+fi
+if [[ "$ORIG_DISPLAY" != "__unset__" ]]; then
+  DISPLAY="$ORIG_DISPLAY"
+else
+  unset DISPLAY
+fi
+if [[ "$ORIG_WAYLAND_DISPLAY" != "__unset__" ]]; then
+  WAYLAND_DISPLAY="$ORIG_WAYLAND_DISPLAY"
+else
+  unset WAYLAND_DISPLAY
+fi
+
+
+# =============================================================================
+# Tests for zsh-snip yank CLI command
+# =============================================================================
+log ""
+log "Testing zsh-snip yank..."
+
+# Create test environment for CLI yank tests
+YANK_TEST_DIR=$(mktemp -d)
+YANK_USER_DIR="$YANK_TEST_DIR/user-snippets"
+YANK_LOCAL_DIR="$YANK_TEST_DIR/project/.zsh-snip"
+YANK_PROJECT_DIR="$YANK_TEST_DIR/project/subdir"
+mkdir -p "$YANK_USER_DIR"
+mkdir -p "$YANK_LOCAL_DIR"
+mkdir -p "$YANK_PROJECT_DIR"
+
+# Save original values
+ORIG_ZSH_SNIP_DIR="$ZSH_SNIP_DIR"
+ORIG_ZSH_SNIP_LOCAL_PATH="${ZSH_SNIP_LOCAL_PATH:-}"
+ORIG_PWD_YANK="$PWD"
+
+# Set up test environment
+ZSH_SNIP_DIR="$YANK_USER_DIR"
+ZSH_SNIP_LOCAL_PATH=".zsh-snip"
+cd "$YANK_PROJECT_DIR"
+
+# Helper to create test snippets for yank tests
+_create_yank_test_snippet() {
+  local dir="$1"
+  local name="$2"
+  local cmd="$3"
+
+  [[ "$name" == */* ]] && mkdir -p "$dir/${name%/*}"
+
+  cat > "$dir/$name" <<EOF
+# name: $name
+# description: Test snippet
+# created: 2024-01-01T00:00:00+00:00
+# ---
+$cmd
+EOF
+}
+
+# Create test snippets
+_create_yank_test_snippet "$YANK_USER_DIR" "yank-test" "echo yank-user"
+_create_yank_test_snippet "$YANK_LOCAL_DIR" "yank-test" "echo yank-local"
+_create_yank_test_snippet "$YANK_USER_DIR" "yank-only-user" "echo only-user"
+
+# Create mock clipboard command to capture what was yanked
+YANK_CAPTURE_FILE="$YANK_TEST_DIR/yanked_content"
+cat > "$YANK_TEST_DIR/mock-copy" <<EOF
+#!/bin/sh
+cat > "$YANK_CAPTURE_FILE"
+EOF
+chmod +x "$YANK_TEST_DIR/mock-copy"
+ZSH_SNIP_YANK_CMD="$YANK_TEST_DIR/mock-copy"
+
+# Test: yank outputs to clipboard command
+output=$(zsh-snip yank yank-only-user 2>&1)
+yanked=$(cat "$YANK_CAPTURE_FILE" 2>/dev/null)
+assert_eq "echo only-user" "$yanked" \
+  "yank sends content to clipboard command"
+
+# Test: yank prefers local over user
+: > "$YANK_CAPTURE_FILE"  # Clear capture file
+output=$(zsh-snip yank yank-test 2>&1)
+yanked=$(cat "$YANK_CAPTURE_FILE" 2>/dev/null)
+assert_eq "echo yank-local" "$yanked" \
+  "yank prefers local over user snippet"
+
+# Test: yank --user forces user snippet
+: > "$YANK_CAPTURE_FILE"
+output=$(zsh-snip yank --user yank-test 2>&1)
+yanked=$(cat "$YANK_CAPTURE_FILE" 2>/dev/null)
+assert_eq "echo yank-user" "$yanked" \
+  "yank --user forces user snippet"
+
+# Test: yank error on not found
+output=$(zsh-snip yank nonexistent 2>&1) && result=0 || result=$?
+assert_eq 1 $result "yank returns exit 1 for not found"
+assert_contains "$output" "not found" "yank error mentions not found"
+
+# Test: yank error when no clipboard command available
+ORIG_YANK_CMD="$ZSH_SNIP_YANK_CMD"
+ZSH_SNIP_YANK_CMD=""
+output=$(zsh-snip yank yank-only-user 2>&1) && result=0 || result=$?
+assert_eq 1 $result "yank returns exit 1 when clipboard unavailable"
+assert_contains "$output" "clipboard" "yank error mentions clipboard"
+ZSH_SNIP_YANK_CMD="$ORIG_YANK_CMD"
+
+# Cleanup yank test environment
+cd "$ORIG_PWD_YANK"
+ZSH_SNIP_DIR="$ORIG_ZSH_SNIP_DIR"
+ZSH_SNIP_LOCAL_PATH="$ORIG_ZSH_SNIP_LOCAL_PATH"
+rm -rf "$YANK_TEST_DIR"
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 log ""

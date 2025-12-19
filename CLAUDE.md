@@ -31,7 +31,7 @@ Functions bound to keys run as zle widgets with special constraints:
 - Colored output in widgets is tricky - `zle -M` doesn't interpret ANSI escapes
 
 ### File format
-Snippets have this header structure:
+Snippets have a header section ending with `# ---`, followed by the command content:
 ```
 # name: <filename>
 # description: <optional description>
@@ -40,6 +40,20 @@ Snippets have this header structure:
 # ---
 <command content>
 ```
+
+The header format is flexible - shebangs and extra comments are supported:
+```
+#!/usr/bin/env zsh
+# This script does something useful
+# name: my-script
+# description: Does useful things
+# args: <input-file>
+# Remember to check permissions first
+# ---
+<command content>
+```
+
+Only `# name:` is required. Header parsing stops at `# ---`, so command content can safely contain header-like lines without confusion.
 
 The `name` field controls the filename - changing it renames the file on save.
 

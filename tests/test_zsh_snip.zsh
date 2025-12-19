@@ -199,6 +199,97 @@ read_cmd=$(_zsh_snip_read_command "$TEST_SNIP_DIR/git/add")
 assert_eq "git add ." "$read_cmd" \
   "creates parent directory and writes snippet to subdirectory"
 
+# =============================================================================
+# Tests for flexible header parsing
+# =============================================================================
+log ""
+log "Testing flexible header parsing..."
+
+# Test header with shebang before # name:
+cat > "$TEST_SNIP_DIR/test-shebang" <<'EOF'
+#!/usr/bin/env zsh
+# name: test-shebang
+# description: Script with shebang
+# ---
+echo "hello"
+EOF
+name=$(_zsh_snip_read_name "$TEST_SNIP_DIR/test-shebang")
+assert_eq "test-shebang" "$name" \
+  "reads name from header with shebang prefix"
+desc=$(_zsh_snip_read_description "$TEST_SNIP_DIR/test-shebang")
+assert_eq "Script with shebang" "$desc" \
+  "reads description from header with shebang prefix"
+read_cmd=$(_zsh_snip_read_command "$TEST_SNIP_DIR/test-shebang")
+assert_eq 'echo "hello"' "$read_cmd" \
+  "reads command from snippet with shebang prefix"
+
+# Test header with extra comments between and around fields
+cat > "$TEST_SNIP_DIR/test-extra-comments" <<'EOF'
+#!/usr/bin/env zsh
+# This is a useful script
+# name: test-extra-comments
+# description: Has extra comments
+# Remember to run this carefully
+# ---
+rm -rf /tmp/test
+EOF
+name=$(_zsh_snip_read_name "$TEST_SNIP_DIR/test-extra-comments")
+assert_eq "test-extra-comments" "$name" \
+  "reads name from header with extra comments"
+desc=$(_zsh_snip_read_description "$TEST_SNIP_DIR/test-extra-comments")
+assert_eq "Has extra comments" "$desc" \
+  "reads description from header with extra comments"
+
+# Test that command content with header-like lines doesn't confuse parser
+cat > "$TEST_SNIP_DIR/test-header-in-content" <<'EOF'
+# name: test-header-in-content
+# description: Creates a snippet file
+# ---
+cat > snippet.txt <<'INNER'
+# name: inner-snippet
+# description: This should not be matched
+# ---
+echo "inner"
+INNER
+EOF
+name=$(_zsh_snip_read_name "$TEST_SNIP_DIR/test-header-in-content")
+assert_eq "test-header-in-content" "$name" \
+  "only reads name from header, not from command content"
+desc=$(_zsh_snip_read_description "$TEST_SNIP_DIR/test-header-in-content")
+assert_eq "Creates a snippet file" "$desc" \
+  "only reads description from header, not from command content"
+
+# Test header with args and extra comments
+cat > "$TEST_SNIP_DIR/test-args-extra" <<'EOF'
+#!/bin/zsh
+# SSL certificate checker
+# name: check-ssl
+# description: Check SSL cert expiry
+# args: <domain> [port]
+# Make sure the domain is accessible
+# ---
+echo "Checking $1"
+EOF
+name=$(_zsh_snip_read_name "$TEST_SNIP_DIR/test-args-extra")
+assert_eq "check-ssl" "$name" \
+  "reads name from complex header"
+args=$(_zsh_snip_read_args "$TEST_SNIP_DIR/test-args-extra")
+assert_eq "<domain> [port]" "$args" \
+  "reads args from complex header"
+
+# Test _zsh_snip_get_name_line_number function
+line_num=$(_zsh_snip_get_name_line_number "$TEST_SNIP_DIR/test-shebang")
+assert_eq "2" "$line_num" \
+  "finds name on line 2 when shebang present"
+
+line_num=$(_zsh_snip_get_name_line_number "$TEST_SNIP_DIR/test-extra-comments")
+assert_eq "3" "$line_num" \
+  "finds name on line 3 with shebang and comment"
+
+line_num=$(_zsh_snip_get_name_line_number "$TEST_SNIP_DIR/test-1")
+assert_eq "1" "$line_num" \
+  "finds name on line 1 for standard header"
+
 # Cleanup
 rm -rf "$TEST_SNIP_DIR"
 

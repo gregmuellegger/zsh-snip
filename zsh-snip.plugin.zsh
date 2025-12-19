@@ -203,27 +203,35 @@ $command
 EOF
 }
 
-# Read name from a snippet file
+# Read name from a snippet file (only searches header, before # ---)
 _zsh_snip_read_name() {
   local filepath="$1"
-  sed -n 's/^# name: //p' "$filepath"
+  sed -n '1,/^# ---$/ { s/^# name: //p; }' "$filepath"
 }
 
-# Open file in editor with cursor at name value (line 1, column 9)
+# Get line number of # name: field in snippet file
+_zsh_snip_get_name_line_number() {
+  local filepath="$1"
+  sed -n '1,/^# ---$/ { /^# name: /= }' "$filepath"
+}
+
+# Open file in editor with cursor at name value
 _zsh_snip_edit_at_name() {
   local filepath="$1"
   local editor="${ZSH_SNIP_EDITOR:-${EDITOR:-vim}}"
   local editor_name="${editor##*/}"
+  local line_num=$(_zsh_snip_get_name_line_number "$filepath")
+  line_num="${line_num:-1}"
 
   case "$editor_name" in
     vim|nvim|vi)
-      "$editor" '+call cursor(1,9)' "$filepath"
+      "$editor" "+call cursor($line_num,9)" "$filepath"
       ;;
     nano)
-      "$editor" +1,9 "$filepath"
+      "$editor" "+$line_num,9" "$filepath"
       ;;
     code|code-insiders)
-      "$editor" -g "$filepath:1:9"
+      "$editor" -g "$filepath:$line_num:9"
       ;;
     *)
       "$editor" "$filepath"
@@ -237,16 +245,16 @@ _zsh_snip_read_command() {
   sed -n '/^# ---$/,$ { /^# ---$/d; p; }' "$filepath"
 }
 
-# Read description from a snippet file
+# Read description from a snippet file (only searches header, before # ---)
 _zsh_snip_read_description() {
   local filepath="$1"
-  sed -n 's/^# description: //p' "$filepath"
+  sed -n '1,/^# ---$/ { s/^# description: //p; }' "$filepath"
 }
 
-# Read args from a snippet file
+# Read args from a snippet file (only searches header, before # ---)
 _zsh_snip_read_args() {
   local filepath="$1"
-  sed -n 's/^# args: //p' "$filepath"
+  sed -n '1,/^# ---$/ { s/^# args: //p; }' "$filepath"
 }
 
 # Wrap command in anonymous function syntax for execution

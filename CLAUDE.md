@@ -57,14 +57,37 @@ Project-local snippets are stored in `.zsh-snip` (configurable via `ZSH_SNIP_LOC
 
 ## Testing
 
-Tests mock `zle` and `bindkey` to source the plugin without terminal:
+Three test suites with increasing integration levels:
+
+### Unit tests (`tests/test_zsh_snip.zsh`)
+73 tests covering individual functions. Mock `zle` and `bindkey` to source the plugin without terminal:
 ```zsh
 function zle() { :; }
 function bindkey() { :; }
 source "$PROJECT_DIR/zsh-snip.plugin.zsh"
 ```
 
-Run tests: `zsh tests/test_zsh_snip.zsh`
+### Integration tests (`tests/test_integration.zsh`)
+
+Tests covering complete workflows with mock fzf. Tests search, save, edit, delete flows by simulating fzf output. Creates temporary directories with test snippets.
+
+### E2E tests (`tests/test_e2e.zsh`)
+
+Tests using tmux to simulate real terminal interaction. Tests actual keybindings (CTRL-X CTRL-S, CTRL-X CTRL-X) and real fzf behavior. Requires tmux and fzf installed.
+
+### Running tests
+```zsh
+# Run all
+zsh tests/test_zsh_snip.zsh
+zsh tests/test_integration.zsh
+zsh tests/test_e2e.zsh
+
+# Quiet mode (only failures)
+QUIET=1 zsh tests/test_zsh_snip.zsh
+
+# Filter specific test
+TEST_FILTER="save" zsh tests/test_e2e.zsh
+```
 
 ## Keybindings
 
@@ -85,7 +108,9 @@ During fzf (snippets show `~` prefix for global, `!` for local):
 ## Files
 
 - `zsh-snip.plugin.zsh` - Main plugin
-- `tests/test_zsh_snip.zsh` - Test suite
+- `tests/test_zsh_snip.zsh` - Unit tests
+- `tests/test_integration.zsh` - Integration tests (mock fzf)
+- `tests/test_e2e.zsh` - E2E tests (tmux)
 - `README.md` - User documentation
 
 ## Common Pitfalls

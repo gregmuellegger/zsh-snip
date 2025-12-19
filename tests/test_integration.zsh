@@ -6,14 +6,14 @@
 # - Mock fzf via PATH manipulation to control selections
 # - Real file I/O with temp directories
 #
-# Run: zsh tests/integration/test_integration.zsh
-# Quiet mode (only failures): QUIET=1 zsh tests/integration/test_integration.zsh
+# Run: zsh tests/test_integration.zsh
+# Quiet mode (only failures): QUIET=1 zsh tests/test_integration.zsh
 
 set -e
 setopt EXTENDED_GLOB
 
 SCRIPT_DIR="${0:A:h}"
-PROJECT_DIR="${SCRIPT_DIR:h:h}"
+PROJECT_DIR="${SCRIPT_DIR:h}"
 
 # =============================================================================
 # Test Framework

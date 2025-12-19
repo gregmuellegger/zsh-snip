@@ -10,14 +10,14 @@
 # - tmux
 # - fzf
 #
-# Run: zsh tests/e2e/test_e2e.zsh
-# Run specific test: TEST_FILTER="save" zsh tests/e2e/test_e2e.zsh
-# Quiet mode (only failures): QUIET=1 zsh tests/e2e/test_e2e.zsh
+# Run: zsh tests/test_e2e.zsh
+# Run specific test: TEST_FILTER="save" zsh tests/test_e2e.zsh
+# Quiet mode (only failures): QUIET=1 zsh tests/test_e2e.zsh
 
 set -e
 
 SCRIPT_DIR="${0:A:h}"
-PROJECT_DIR="${SCRIPT_DIR:h:h}"
+PROJECT_DIR="${SCRIPT_DIR:h}"
 
 # Check requirements
 if ! command -v tmux &>/dev/null; then

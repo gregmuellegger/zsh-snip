@@ -181,6 +181,58 @@ my-project/
 
 This is useful for project-specific commands that don't belong in your global snippets. You can commit `.zsh-snip` to version control to share snippets with your team.
 
+## CLI Interface
+
+For scripting and automation, use the `zsh-snip` command:
+
+```zsh
+zsh-snip list [filter]      # List snippets (filter is glob pattern)
+zsh-snip path <name>        # Show full path to snippet file
+zsh-snip expand <name>      # Output snippet content (no header)
+zsh-snip exec <name> [args] # Execute snippet with arguments
+```
+
+### Options
+
+| Option | Commands | Description |
+|--------|----------|-------------|
+| `--user` | all | Only user snippets (`~/.local/share/zsh-snip`) |
+| `--local` | all | Only project-local snippets (`.zsh-snip`) |
+| `--names-only` | list | Output only snippet names |
+| `--full-path` | list | Show full absolute paths |
+| `--no-color` | list | Disable colored output |
+
+Output is automatically aligned in columns with colors (cyan for name, yellow for path, white for description). Colors are disabled when output is piped or redirected.
+
+### Examples
+
+```zsh
+# List all snippets
+zsh-snip list
+
+# List docker-related snippets
+zsh-snip list 'docker*'
+
+# Get snippet content for piping
+zsh-snip expand my-snippet | pbcopy
+
+# Execute a snippet with arguments
+zsh-snip exec deploy-app prod v1.2.3
+
+# List only local project snippets
+zsh-snip list --local --names-only
+```
+
+### Scope Behavior
+
+When both user and local snippets have the same name, local takes precedence. Use `--user` or `--local` to be explicit:
+
+```zsh
+zsh-snip expand deploy          # Uses local if exists, else user
+zsh-snip expand --user deploy   # Always use user snippet
+zsh-snip expand --local deploy  # Always use local snippet (error if not found)
+```
+
 ## Example Snippets
 
 The [`example-snippets/`](./example-snippets) directory contains snippets demonstrating different usage patterns:

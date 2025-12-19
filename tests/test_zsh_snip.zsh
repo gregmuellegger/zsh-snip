@@ -43,6 +43,23 @@ assert_eq() {
   fi
 }
 
+assert_contains() {
+  local haystack="$1"
+  local needle="$2"
+  local msg="$3"
+  TESTS_RUN=$((TESTS_RUN + 1))
+
+  if [[ "$haystack" == *"$needle"* ]]; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    log "  ✓ $msg"
+  else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo "  ✗ $msg"
+    echo "    expected to contain: '$needle'"
+    echo "    actual: '$haystack'"
+  fi
+}
+
 # =============================================================================
 # Tests for _zsh_snip_extract_command
 # =============================================================================
@@ -469,6 +486,261 @@ assert_eq "" "$(_zsh_snip_find_local_dir)" \
 ZSH_SNIP_LOCAL_PATH="$ORIG_ZSH_SNIP_LOCAL_PATH"
 cd /
 rm -rf "$TEST_PROJECT_ROOT"
+
+
+# =============================================================================
+# Tests for zsh-snip CLI interface
+# =============================================================================
+log ""
+log "Testing zsh-snip CLI interface..."
+
+# Create test environment for CLI tests
+CLI_TEST_DIR=$(mktemp -d)
+CLI_USER_DIR="$CLI_TEST_DIR/user-snippets"
+CLI_LOCAL_DIR="$CLI_TEST_DIR/project/.zsh-snip"
+CLI_PROJECT_DIR="$CLI_TEST_DIR/project/subdir"
+mkdir -p "$CLI_USER_DIR"
+mkdir -p "$CLI_LOCAL_DIR"
+mkdir -p "$CLI_PROJECT_DIR"
+
+# Save original values
+ORIG_ZSH_SNIP_DIR="$ZSH_SNIP_DIR"
+ORIG_ZSH_SNIP_LOCAL_PATH="${ZSH_SNIP_LOCAL_PATH:-}"
+ORIG_PWD="$PWD"
+
+# Set up test environment
+ZSH_SNIP_DIR="$CLI_USER_DIR"
+ZSH_SNIP_LOCAL_PATH=".zsh-snip"
+cd "$CLI_PROJECT_DIR"
+
+# Helper to create test snippets
+_create_cli_test_snippet() {
+  local dir="$1"
+  local name="$2"
+  local desc="$3"
+  local cmd="$4"
+  local args="${5:-}"
+
+  [[ "$name" == */* ]] && mkdir -p "$dir/${name%/*}"
+
+  cat > "$dir/$name" <<EOF
+# name: $name
+# description: $desc
+${args:+# args: $args}
+# created: 2024-01-01T00:00:00+00:00
+# ---
+$cmd
+EOF
+}
+
+# Create test snippets
+_create_cli_test_snippet "$CLI_USER_DIR" "git-status" "Show git status" "git status"
+_create_cli_test_snippet "$CLI_USER_DIR" "git-push" "Push to remote" "git push"
+_create_cli_test_snippet "$CLI_USER_DIR" "docker-run" "Run docker container" 'docker run -it $1'
+_create_cli_test_snippet "$CLI_USER_DIR" "deploy" "Deploy app" 'deploy.sh $1 $2' '<env> <version>'
+_create_cli_test_snippet "$CLI_USER_DIR" "sub/nested" "Nested snippet" "echo nested"
+_create_cli_test_snippet "$CLI_LOCAL_DIR" "local-only" "Local only snippet" "echo local"
+_create_cli_test_snippet "$CLI_LOCAL_DIR" "git-status" "Local git status override" "git status --short"
+
+# -----------------------------------------------------------------------------
+# Tests for zsh-snip list
+# -----------------------------------------------------------------------------
+log ""
+log "Testing zsh-snip list..."
+
+# Test: list shows all snippets
+output=$(zsh-snip list 2>&1)
+assert_contains "$output" "git-status" "list shows git-status snippet"
+assert_contains "$output" "git-push" "list shows git-push snippet"
+assert_contains "$output" "local-only" "list shows local-only snippet"
+
+# Test: list with glob filter
+output=$(zsh-snip list 'git-*' 2>&1)
+assert_contains "$output" "git-status" "list glob filter matches git-status"
+assert_contains "$output" "git-push" "list glob filter matches git-push"
+[[ "$output" != *"docker-run"* ]]
+assert_eq 0 $? "list glob filter excludes docker-run"
+
+# Test: list with substring filter (no glob chars = substring match)
+output=$(zsh-snip list 'git' 2>&1)
+assert_contains "$output" "git-status" "list substring matches git-status"
+assert_contains "$output" "git-push" "list substring matches git-push"
+[[ "$output" != *"docker-run"* ]]
+assert_eq 0 $? "list substring excludes docker-run"
+
+# Test: list substring matches in path (e.g., sub/nested matches 'sub')
+output=$(zsh-snip list 'sub' 2>&1)
+assert_contains "$output" "sub/nested" "list substring matches nested path"
+
+# Test: list --names-only
+output=$(zsh-snip list --names-only 2>&1)
+# Should NOT contain path (e.g., no ~)
+[[ "$output" != *"~"* ]]
+assert_eq 0 $? "list --names-only excludes path"
+assert_contains "$output" "git-status" "list --names-only shows names"
+
+# Test: list --full-path
+output=$(zsh-snip list --full-path 2>&1)
+assert_contains "$output" "$CLI_USER_DIR" "list --full-path shows absolute user path"
+assert_contains "$output" "$CLI_LOCAL_DIR" "list --full-path shows absolute local path"
+
+# Test: list --user (only user snippets)
+output=$(zsh-snip list --user 2>&1)
+assert_contains "$output" "git-push" "list --user shows user snippets"
+[[ "$output" != *"local-only"* ]]
+assert_eq 0 $? "list --user excludes local snippets"
+
+# Test: list --local (only local snippets)
+output=$(zsh-snip list --local 2>&1)
+assert_contains "$output" "local-only" "list --local shows local snippets"
+# git-status appears in both, so check it's there
+assert_contains "$output" "git-status" "list --local shows local git-status"
+# But deploy is user-only
+[[ "$output" != *"deploy"* ]]
+assert_eq 0 $? "list --local excludes user-only snippets"
+
+# Test: list shows local preference (local first when both have same name)
+output=$(zsh-snip list 'git-status' 2>&1)
+# Should show the local version (which has "Local git status" description)
+assert_contains "$output" "Local git status" "list prefers local over user for same name"
+
+# Test: list with nested snippet
+output=$(zsh-snip list 'sub/*' 2>&1)
+assert_contains "$output" "sub/nested" "list shows nested snippet path"
+
+# -----------------------------------------------------------------------------
+# Tests for zsh-snip expand
+# -----------------------------------------------------------------------------
+log ""
+log "Testing zsh-snip expand..."
+
+# Test: expand outputs command content
+output=$(zsh-snip expand git-push 2>&1)
+assert_eq "git push" "$output" "expand outputs command content"
+
+# Test: expand prefers local when same name exists
+output=$(zsh-snip expand git-status 2>&1)
+assert_eq "git status --short" "$output" "expand prefers local over user"
+
+# Test: expand --user forces user snippet
+output=$(zsh-snip expand --user git-status 2>&1)
+assert_eq "git status" "$output" "expand --user forces user snippet"
+
+# Test: expand --local forces local snippet
+output=$(zsh-snip expand --local git-status 2>&1)
+assert_eq "git status --short" "$output" "expand --local forces local snippet"
+
+# Test: expand error on not found
+output=$(zsh-snip expand nonexistent 2>&1) && result=0 || result=$?
+assert_eq 1 $result "expand returns exit 1 for not found"
+assert_contains "$output" "not found" "expand error message mentions not found"
+
+# Test: expand --local error when only in user
+output=$(zsh-snip expand --local git-push 2>&1) && result=0 || result=$?
+assert_eq 1 $result "expand --local returns exit 1 for user-only snippet"
+
+# Test: expand nested snippet
+output=$(zsh-snip expand sub/nested 2>&1)
+assert_eq "echo nested" "$output" "expand works with nested snippets"
+
+# -----------------------------------------------------------------------------
+# Tests for zsh-snip path
+# -----------------------------------------------------------------------------
+log ""
+log "Testing zsh-snip path..."
+
+# Test: path outputs full path
+output=$(zsh-snip path git-push 2>&1)
+assert_eq "$CLI_USER_DIR/git-push" "$output" "path outputs full path"
+
+# Test: path prefers local when same name exists
+output=$(zsh-snip path git-status 2>&1)
+assert_eq "$CLI_LOCAL_DIR/git-status" "$output" "path prefers local over user"
+
+# Test: path --user forces user snippet
+output=$(zsh-snip path --user git-status 2>&1)
+assert_eq "$CLI_USER_DIR/git-status" "$output" "path --user forces user snippet"
+
+# Test: path --local forces local snippet
+output=$(zsh-snip path --local git-status 2>&1)
+assert_eq "$CLI_LOCAL_DIR/git-status" "$output" "path --local forces local snippet"
+
+# Test: path error on not found
+output=$(zsh-snip path nonexistent 2>&1) && result=0 || result=$?
+assert_eq 1 $result "path returns exit 1 for not found"
+assert_contains "$output" "not found" "path error message mentions not found"
+
+# Test: path nested snippet
+output=$(zsh-snip path sub/nested 2>&1)
+assert_eq "$CLI_USER_DIR/sub/nested" "$output" "path works with nested snippets"
+
+# -----------------------------------------------------------------------------
+# Tests for zsh-snip exec
+# -----------------------------------------------------------------------------
+log ""
+log "Testing zsh-snip exec..."
+
+# Test: exec runs command (simple echo test)
+_create_cli_test_snippet "$CLI_USER_DIR" "echo-test" "Echo test" 'echo "executed"'
+output=$(zsh-snip exec echo-test 2>&1)
+assert_eq "executed" "$output" "exec runs the command"
+
+# Test: exec with args
+_create_cli_test_snippet "$CLI_USER_DIR" "echo-args" "Echo with args" 'echo "arg: $1"' '<arg>'
+output=$(zsh-snip exec echo-args "hello" 2>&1)
+assert_eq "arg: hello" "$output" "exec passes args to command"
+
+# Test: exec error when args required but not given
+output=$(zsh-snip exec echo-args 2>&1) && result=0 || result=$?
+assert_eq 1 $result "exec returns exit 1 when args required but not given"
+assert_contains "$output" "args" "exec error mentions args requirement"
+
+# Test: exec without args field runs even with no args
+_create_cli_test_snippet "$CLI_USER_DIR" "no-args-needed" "No args" 'echo "no args needed"'
+output=$(zsh-snip exec no-args-needed 2>&1)
+assert_eq "no args needed" "$output" "exec runs without args when not required"
+
+# Test: exec prefers local
+_create_cli_test_snippet "$CLI_USER_DIR" "scope-test" "User version" 'echo "user"'
+_create_cli_test_snippet "$CLI_LOCAL_DIR" "scope-test" "Local version" 'echo "local"'
+output=$(zsh-snip exec scope-test 2>&1)
+assert_eq "local" "$output" "exec prefers local over user"
+
+# Test: exec --user forces user snippet
+output=$(zsh-snip exec --user scope-test 2>&1)
+assert_eq "user" "$output" "exec --user forces user snippet"
+
+# Test: exec error on not found
+output=$(zsh-snip exec nonexistent 2>&1) && result=0 || result=$?
+assert_eq 1 $result "exec returns exit 1 for not found"
+
+# Test: exec adds to history (check fc -l)
+# Note: History testing is tricky in non-interactive shell, skip for unit tests
+
+# -----------------------------------------------------------------------------
+# Tests for invalid subcommands
+# -----------------------------------------------------------------------------
+log ""
+log "Testing zsh-snip error handling..."
+
+# Test: unknown subcommand
+output=$(zsh-snip unknown 2>&1) && result=0 || result=$?
+assert_eq 1 $result "unknown subcommand returns exit 1"
+assert_contains "$output" "unknown" "error mentions unknown command"
+
+# Test: no subcommand shows usage
+output=$(zsh-snip 2>&1) && result=0 || result=$?
+assert_eq 1 $result "no subcommand returns exit 1"
+assert_contains "$output" "list" "usage mentions list"
+assert_contains "$output" "path" "usage mentions path"
+assert_contains "$output" "expand" "usage mentions expand"
+assert_contains "$output" "exec" "usage mentions exec"
+
+# Cleanup CLI test environment
+cd "$ORIG_PWD"
+ZSH_SNIP_DIR="$ORIG_ZSH_SNIP_DIR"
+ZSH_SNIP_LOCAL_PATH="$ORIG_ZSH_SNIP_LOCAL_PATH"
+rm -rf "$CLI_TEST_DIR"
 
 
 # =============================================================================

@@ -60,7 +60,8 @@ Project-local snippets are stored in `.zsh-snip` (configurable via `ZSH_SNIP_LOC
 Three test suites with increasing integration levels:
 
 ### Unit tests (`tests/test_zsh_snip.zsh`)
-73 tests covering individual functions. Mock `zle` and `bindkey` to source the plugin without terminal:
+
+Tests covering individual functions and CLI interface. Mock `zle` and `bindkey` to source the plugin without terminal:
 ```zsh
 function zle() { :; }
 function bindkey() { :; }
@@ -104,6 +105,27 @@ During fzf (snippets show `~` prefix for global, `!` for local):
 - `CTRL-N` - Duplicate snippet and edit the copy
 - `CTRL-D` - Delete snippet (with confirmation)
 - `ALT-E` - Insert and edit inline (like `fc`)
+
+## CLI Interface
+
+The `zsh-snip` function provides programmatic access to snippets:
+
+```zsh
+zsh-snip list [filter]      # List snippets (glob pattern filter)
+zsh-snip expand <name>      # Output snippet content (no header)
+zsh-snip exec <name> [args] # Execute snippet with arguments
+```
+
+Options:
+- `--user` / `--local` - Filter by scope (local takes precedence by default)
+- `--names-only` - (list) Output only names
+- `--full-path` - (list) Show absolute paths
+
+Implementation details:
+- `_zsh_snip_cli_list()` - Handles listing with deduplication (local wins)
+- `_zsh_snip_cli_expand()` - Outputs raw command content
+- `_zsh_snip_cli_exec()` - Wraps in anonymous function, adds to history
+- `_zsh_snip_cli_resolve()` - Resolves name to filepath with scope handling
 
 ## Files
 

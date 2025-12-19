@@ -693,6 +693,339 @@ _zsh_snip_save_local() {
   zle -M "Saved (local): $filepath"
 }
 
+# =============================================================================
+# CLI Interface
+# =============================================================================
+
+# Main CLI entry point
+# Usage:
+#   zsh-snip list [filter] [--names-only] [--full-path] [--user|--local]
+#   zsh-snip expand <name> [--user|--local]
+#   zsh-snip exec <name> [args...] [--user|--local]
+zsh-snip() {
+  local subcommand="$1"
+  shift 2>/dev/null
+
+  case "$subcommand" in
+    list)   _zsh_snip_cli_list "$@" ;;
+    path)   _zsh_snip_cli_path "$@" ;;
+    expand) _zsh_snip_cli_expand "$@" ;;
+    exec)   _zsh_snip_cli_exec "$@" ;;
+    "")
+      echo "Usage: zsh-snip <command> [options]" >&2
+      echo "" >&2
+      echo "Commands:" >&2
+      echo "  list [filter]      List snippets (filter is glob pattern)" >&2
+      echo "  path <name>        Show full path to snippet file" >&2
+      echo "  expand <name>      Output snippet content" >&2
+      echo "  exec <name> [args] Execute snippet with arguments" >&2
+      echo "" >&2
+      echo "Options:" >&2
+      echo "  --user            Only user snippets" >&2
+      echo "  --local           Only local/project snippets" >&2
+      echo "  --names-only      (list) Output only names" >&2
+      echo "  --full-path       (list) Show full absolute paths" >&2
+      return 1
+      ;;
+    *)
+      echo "zsh-snip: unknown command '$subcommand'" >&2
+      echo "Run 'zsh-snip' for usage" >&2
+      return 1
+      ;;
+  esac
+}
+
+# List snippets
+# Output format: name [path]: description (aligned, colored)
+_zsh_snip_cli_list() {
+  setopt LOCAL_OPTIONS EXTENDED_GLOB
+
+  local filter="*"
+  local names_only=0
+  local full_path=0
+  local scope=""  # empty = both, "user" = user only, "local" = local only
+  local no_color=0
+
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --names-only) names_only=1 ;;
+      --full-path)  full_path=1 ;;
+      --user)       scope="user" ;;
+      --local)      scope="local" ;;
+      --no-color)   no_color=1 ;;
+      -*)
+        echo "zsh-snip list: unknown option '$1'" >&2
+        return 1
+        ;;
+      *)
+        filter="$1"
+        ;;
+    esac
+    shift
+  done
+
+  # If filter has no glob chars, wrap in *...* for substring match
+  if [[ "$filter" != *[\*\?\[]* ]]; then
+    filter="*${filter}*"
+  fi
+
+  local user_dir="$ZSH_SNIP_DIR"
+  local local_dir
+  local_dir=$(_zsh_snip_find_local_dir)
+
+  # Track names we've seen (for local preference deduplication)
+  typeset -A seen_names
+
+  # Declare loop variables outside to avoid 'local' output issues
+  local f name desc display_path
+
+  # Colors (disabled if not tty or --no-color)
+  local c_name="" c_path="" c_desc="" c_reset=""
+  if [[ -t 1 && $no_color -eq 0 ]]; then
+    c_name=$'\e[1;36m'   # bold cyan for name
+    c_path=$'\e[33m'     # yellow for path
+    c_desc=$'\e[37m'     # white/gray for description
+    c_reset=$'\e[0m'
+  fi
+
+  # Use unit separator for column alignment
+  local US=$'\x1f'
+
+  # Collect results as: name[US]path[US]description
+  local results=()
+
+  # Local snippets first (they take precedence)
+  if [[ "$scope" != "user" && -n "$local_dir" ]]; then
+    local local_files=("$local_dir"/**/*(N.))
+    for f in "${local_files[@]}"; do
+      [[ -f "$f" ]] || continue
+      name="${f#$local_dir/}"
+      [[ "$name" == .* || "$name" == */.* ]] && continue
+      # Apply filter to full name (path)
+      [[ "$name" != $~filter ]] && continue
+      seen_names[$name]=1
+
+      if (( names_only )); then
+        results+=("$name")
+      else
+        desc=$(_zsh_snip_read_description "$f")
+        if (( full_path )); then
+          display_path="$local_dir"
+        else
+          # Relative path from PWD
+          display_path="${local_dir#$PWD/}"
+          [[ "$display_path" == "$local_dir" ]] && display_path=$(realpath --relative-to="$PWD" "$local_dir" 2>/dev/null || echo "$local_dir")
+        fi
+        results+=("${c_name}${name}${c_reset}${US}${c_path}${display_path}${c_reset}${US}${c_desc}${desc}${c_reset}")
+      fi
+    done
+  fi
+
+  # User snippets
+  if [[ "$scope" != "local" ]]; then
+    local user_files=("$user_dir"/**/*(N.))
+    for f in "${user_files[@]}"; do
+      [[ -f "$f" ]] || continue
+      name="${f#$user_dir/}"
+      [[ "$name" == .* || "$name" == */.* ]] && continue
+      # Apply filter to full name (path)
+      [[ "$name" != $~filter ]] && continue
+
+      # Skip if local version exists (unless showing user-only)
+      if [[ "$scope" != "user" && -n "${seen_names[$name]}" ]]; then
+        continue
+      fi
+
+      if (( names_only )); then
+        results+=("$name")
+      else
+        desc=$(_zsh_snip_read_description "$f")
+        if (( full_path )); then
+          display_path="$user_dir"
+        else
+          # Abbreviate to just ~
+          display_path="~"
+        fi
+        results+=("${c_name}${name}${c_reset}${US}${c_path}${display_path}${c_reset}${US}${c_desc}${desc}${c_reset}")
+      fi
+    done
+  fi
+
+  # Output results
+  if (( names_only )); then
+    for name in "${results[@]}"; do
+      echo "$name"
+    done
+  else
+    # Use column to align fields
+    printf '%s\n' "${results[@]}" | column -t -s $'\x1f'
+  fi
+}
+
+# Show full path to snippet file
+_zsh_snip_cli_path() {
+  local name=""
+  local scope=""
+
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --user)  scope="user" ;;
+      --local) scope="local" ;;
+      -*)
+        echo "zsh-snip path: unknown option '$1'" >&2
+        return 1
+        ;;
+      *)
+        if [[ -z "$name" ]]; then
+          name="$1"
+        else
+          echo "zsh-snip path: unexpected argument '$1'" >&2
+          return 1
+        fi
+        ;;
+    esac
+    shift
+  done
+
+  if [[ -z "$name" ]]; then
+    echo "zsh-snip path: missing snippet name" >&2
+    return 1
+  fi
+
+  local filepath
+  filepath=$(_zsh_snip_cli_resolve "$name" "$scope")
+  if [[ -z "$filepath" ]]; then
+    echo "zsh-snip path: '$name' not found" >&2
+    return 1
+  fi
+
+  echo "$filepath"
+}
+
+# Expand snippet - output command content
+_zsh_snip_cli_expand() {
+  local name=""
+  local scope=""
+
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --user)  scope="user" ;;
+      --local) scope="local" ;;
+      -*)
+        echo "zsh-snip expand: unknown option '$1'" >&2
+        return 1
+        ;;
+      *)
+        if [[ -z "$name" ]]; then
+          name="$1"
+        else
+          echo "zsh-snip expand: unexpected argument '$1'" >&2
+          return 1
+        fi
+        ;;
+    esac
+    shift
+  done
+
+  if [[ -z "$name" ]]; then
+    echo "zsh-snip expand: missing snippet name" >&2
+    return 1
+  fi
+
+  local filepath=$(_zsh_snip_cli_resolve "$name" "$scope")
+  if [[ -z "$filepath" ]]; then
+    echo "zsh-snip expand: '$name' not found" >&2
+    return 1
+  fi
+
+  _zsh_snip_read_command "$filepath"
+}
+
+# Execute snippet
+_zsh_snip_cli_exec() {
+  local name=""
+  local scope=""
+  local -a args=()
+
+  # Parse arguments - flags must come before name
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --user)  scope="user" ;;
+      --local) scope="local" ;;
+      -*)
+        echo "zsh-snip exec: unknown option '$1'" >&2
+        return 1
+        ;;
+      *)
+        if [[ -z "$name" ]]; then
+          name="$1"
+        else
+          args+=("$1")
+        fi
+        ;;
+    esac
+    shift
+  done
+
+  if [[ -z "$name" ]]; then
+    echo "zsh-snip exec: missing snippet name" >&2
+    return 1
+  fi
+
+  local filepath=$(_zsh_snip_cli_resolve "$name" "$scope")
+  if [[ -z "$filepath" ]]; then
+    echo "zsh-snip exec: '$name' not found" >&2
+    return 1
+  fi
+
+  local command=$(_zsh_snip_read_command "$filepath")
+  local args_hint=$(_zsh_snip_read_args "$filepath")
+
+  # Check if args are required but not provided
+  if [[ -n "$args_hint" && ${#args[@]} -eq 0 ]]; then
+    echo "zsh-snip exec: '$name' requires args: $args_hint" >&2
+    return 1
+  fi
+
+  # Build and execute command as anonymous function
+  local full_cmd="() { $command } ${(q)args[@]}"
+
+  # Add to history
+  print -s "$full_cmd"
+
+  # Execute
+  eval "$full_cmd"
+}
+
+# Resolve snippet name to filepath
+# Args: name [scope]
+# scope: "" = prefer local, "user" = user only, "local" = local only
+_zsh_snip_cli_resolve() {
+  local name="$1"
+  local scope="$2"
+
+  local user_dir="$ZSH_SNIP_DIR"
+  local local_dir=$(_zsh_snip_find_local_dir)
+
+  # Check local first (unless user-only)
+  if [[ "$scope" != "user" && -n "$local_dir" && -f "$local_dir/$name" ]]; then
+    echo "$local_dir/$name"
+    return
+  fi
+
+  # Check user (unless local-only)
+  if [[ "$scope" != "local" && -f "$user_dir/$name" ]]; then
+    echo "$user_dir/$name"
+    return
+  fi
+
+  # Not found
+  return 1
+}
+
 # Register widgets and keybindings
 zle -N _zsh_snip_save
 zle -N _zsh_snip_save_local

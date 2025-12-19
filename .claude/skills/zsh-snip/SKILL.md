@@ -157,15 +157,21 @@ docker image save "$tag" | gzip | ssh "$target" "gunzip -c | docker load"
 
 ## Creating Snippets
 
+### Location Selection
+
+When no location is specified:
+1. **Check for local `.zsh-snip` directory** - If one exists in the project tree, create the snippet there
+2. **Otherwise use user directory** - Fall back to `${XDG_DATA_HOME:-$HOME/.local/share}/zsh-snip/`
+
 ### Using the Write Tool
 Write directly to the storage location:
 
 ```zsh
-# Global snippet
-/home/user/.local/share/zsh-snip/<name>
-
-# Project-local snippet
+# Project-local snippet (preferred if .zsh-snip exists)
 /path/to/project/.zsh-snip/<name>
+
+# User snippet (fallback)
+/home/user/.local/share/zsh-snip/<name>
 ```
 
 ### Timestamp Generation

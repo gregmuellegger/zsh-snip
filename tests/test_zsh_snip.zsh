@@ -1,5 +1,8 @@
 #!/usr/bin/env zsh
 # Tests for zsh-snip
+#
+# Run: zsh tests/test_zsh_snip.zsh
+# Quiet mode (only failures): QUIET=1 zsh tests/test_zsh_snip.zsh
 
 set -e
 
@@ -16,6 +19,12 @@ TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
 
+# Quiet mode - only show failures
+: ${QUIET:=0}
+
+# Log function that respects QUIET mode
+log() { [[ "$QUIET" != "1" ]] && echo "$@"; return 0; }
+
 # Test helper functions
 assert_eq() {
   local expected="$1"
@@ -25,7 +34,7 @@ assert_eq() {
 
   if [[ "$expected" == "$actual" ]]; then
     TESTS_PASSED=$((TESTS_PASSED + 1))
-    echo "  ✓ $msg"
+    log "  ✓ $msg"
   else
     TESTS_FAILED=$((TESTS_FAILED + 1))
     echo "  ✗ $msg"
@@ -37,7 +46,7 @@ assert_eq() {
 # =============================================================================
 # Tests for _zsh_snip_extract_command
 # =============================================================================
-echo "Testing _zsh_snip_extract_command..."
+log "Testing _zsh_snip_extract_command..."
 
 assert_eq "git" "$(_zsh_snip_extract_command 'git diff | grep foo')" \
   "extracts first command from pipeline"
@@ -79,8 +88,8 @@ assert_eq "snippet" "$(_zsh_snip_extract_command '   ')" \
 # =============================================================================
 # Tests for _zsh_snip_next_id
 # =============================================================================
-echo ""
-echo "Testing _zsh_snip_next_id..."
+log ""
+log "Testing _zsh_snip_next_id..."
 
 # Create a temp directory for testing
 TEST_SNIP_DIR=$(mktemp -d)
@@ -113,8 +122,8 @@ rm -rf "$TEST_SNIP_DIR"
 # =============================================================================
 # Tests for _zsh_snip_write and _zsh_snip_read_command
 # =============================================================================
-echo ""
-echo "Testing _zsh_snip_write and _zsh_snip_read_command..."
+log ""
+log "Testing _zsh_snip_write and _zsh_snip_read_command..."
 
 TEST_SNIP_DIR=$(mktemp -d)
 ZSH_SNIP_DIR="$TEST_SNIP_DIR"
@@ -180,8 +189,8 @@ rm -rf "$TEST_SNIP_DIR"
 # =============================================================================
 # Tests for _zsh_snip_extract_trailing_comment
 # =============================================================================
-echo ""
-echo "Testing _zsh_snip_extract_trailing_comment..."
+log ""
+log "Testing _zsh_snip_extract_trailing_comment..."
 
 assert_eq "git amend" "$(_zsh_snip_extract_trailing_comment 'git commit --amend  # git amend')" \
   "extracts trailing comment"
@@ -212,8 +221,8 @@ assert_eq "" "$(_zsh_snip_extract_trailing_comment $'line1\nline2 # comment')" \
 # =============================================================================
 # Tests for _zsh_snip_extract_trailing_name
 # =============================================================================
-echo ""
-echo "Testing _zsh_snip_extract_trailing_name..."
+log ""
+log "Testing _zsh_snip_extract_trailing_name..."
 
 assert_eq "add" "$(_zsh_snip_extract_trailing_name 'git add # add: adding files to git')" \
   "extracts name from name: desc format"
@@ -234,8 +243,8 @@ assert_eq "" "$(_zsh_snip_extract_trailing_name $'cat <<EOF\n#!/bin/bash\nEOF')"
 # =============================================================================
 # Tests for _zsh_snip_slugify
 # =============================================================================
-echo ""
-echo "Testing _zsh_snip_slugify..."
+log ""
+log "Testing _zsh_snip_slugify..."
 
 assert_eq "hello-world" "$(_zsh_snip_slugify 'hello world')" \
   "replaces spaces with dashes"
@@ -262,8 +271,8 @@ assert_eq "simple-name" "$(_zsh_snip_slugify 'simple-name')" \
 # =============================================================================
 # Tests for _zsh_snip_read_command_preview
 # =============================================================================
-echo ""
-echo "Testing _zsh_snip_read_command_preview..."
+log ""
+log "Testing _zsh_snip_read_command_preview..."
 
 TEST_SNIP_DIR=$(mktemp -d)
 ZSH_SNIP_DIR="$TEST_SNIP_DIR"
@@ -289,8 +298,8 @@ rm -rf "$TEST_SNIP_DIR"
 # =============================================================================
 # Tests for _zsh_snip_insert_at_cursor
 # =============================================================================
-echo ""
-echo "Testing _zsh_snip_insert_at_cursor..."
+log ""
+log "Testing _zsh_snip_insert_at_cursor..."
 
 # Test inserting at cursor position in middle of buffer
 BUFFER="docker run "
@@ -339,8 +348,8 @@ assert_eq $'echo start; git add .\ngit commit -m "test"; echo end' "$BUFFER" \
 # =============================================================================
 # Tests for _zsh_snip_duplicate_name
 # =============================================================================
-echo ""
-echo "Testing _zsh_snip_duplicate_name..."
+log ""
+log "Testing _zsh_snip_duplicate_name..."
 
 TEST_SNIP_DIR=$(mktemp -d)
 ZSH_SNIP_DIR="$TEST_SNIP_DIR"
@@ -371,8 +380,8 @@ rm -rf "$TEST_SNIP_DIR"
 # =============================================================================
 # Tests for _zsh_snip_wrap_anon_func
 # =============================================================================
-echo ""
-echo "Testing _zsh_snip_wrap_anon_func..."
+log ""
+log "Testing _zsh_snip_wrap_anon_func..."
 
 # Test single-line command
 wrapped=$(_zsh_snip_wrap_anon_func 'echo hello')
@@ -418,8 +427,8 @@ assert_eq $'() {\necho hello\n} ' "$wrapped" \
 # =============================================================================
 # Tests for _zsh_snip_find_local_dir
 # =============================================================================
-echo ""
-echo "Testing _zsh_snip_find_local_dir..."
+log ""
+log "Testing _zsh_snip_find_local_dir..."
 
 # Create a temp directory structure for testing
 TEST_PROJECT_ROOT=$(mktemp -d)
@@ -465,7 +474,7 @@ rm -rf "$TEST_PROJECT_ROOT"
 # =============================================================================
 # Summary
 # =============================================================================
-echo ""
+log ""
 echo "=========================================="
 echo "Tests run: $TESTS_RUN"
 echo "Passed:    $TESTS_PASSED"

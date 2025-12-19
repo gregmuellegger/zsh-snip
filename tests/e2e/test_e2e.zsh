@@ -12,6 +12,7 @@
 #
 # Run: zsh tests/e2e/test_e2e.zsh
 # Run specific test: TEST_FILTER="save" zsh tests/e2e/test_e2e.zsh
+# Quiet mode (only failures): QUIET=1 zsh tests/e2e/test_e2e.zsh
 
 set -e
 
@@ -40,6 +41,12 @@ TESTS_SKIPPED=0
 TEST_DIR=""
 TMUX_SESSION=""
 
+# Quiet mode - only show failures
+: ${QUIET:=0}
+
+# Log function that respects QUIET mode
+log() { [[ "$QUIET" != "1" ]] && echo "$@"; return 0; }
+
 # Colors
 if [[ -t 1 ]]; then
     RED=$'\e[31m'
@@ -62,7 +69,7 @@ assert_eq() {
 
     if [[ "$expected" == "$actual" ]]; then
         TESTS_PASSED=$((TESTS_PASSED + 1))
-        echo "  ${GREEN}✓${RESET} $msg"
+        log "  ${GREEN}✓${RESET} $msg"
     else
         TESTS_FAILED=$((TESTS_FAILED + 1))
         echo "  ${RED}✗${RESET} $msg"
@@ -79,7 +86,7 @@ assert_contains() {
 
     if [[ "$haystack" == *"$needle"* ]]; then
         TESTS_PASSED=$((TESTS_PASSED + 1))
-        echo "  ${GREEN}✓${RESET} $msg"
+        log "  ${GREEN}✓${RESET} $msg"
     else
         TESTS_FAILED=$((TESTS_FAILED + 1))
         echo "  ${RED}✗${RESET} $msg"
@@ -95,7 +102,7 @@ assert_file_exists() {
 
     if [[ -f "$filepath" ]]; then
         TESTS_PASSED=$((TESTS_PASSED + 1))
-        echo "  ${GREEN}✓${RESET} $msg"
+        log "  ${GREEN}✓${RESET} $msg"
     else
         TESTS_FAILED=$((TESTS_FAILED + 1))
         echo "  ${RED}✗${RESET} $msg"
@@ -107,7 +114,7 @@ skip_test() {
     local msg="$1"
     TESTS_RUN=$((TESTS_RUN + 1))
     TESTS_SKIPPED=$((TESTS_SKIPPED + 1))
-    echo "  ${YELLOW}⊘${RESET} $msg (skipped)"
+    log "  ${YELLOW}⊘${RESET} $msg (skipped)"
 }
 
 # =============================================================================
@@ -226,8 +233,8 @@ EOF
 
 # Test: Basic shell interaction works
 test_shell_ready() {
-    echo ""
-    echo "Testing: Shell session is ready..."
+    log ""
+    log "Testing: Shell session is ready..."
     start_tmux_session
 
     # Type a simple command
@@ -243,8 +250,8 @@ test_shell_ready() {
 
 # Test: Plugin loads and widgets are available
 test_plugin_loads() {
-    echo ""
-    echo "Testing: Plugin loads correctly..."
+    log ""
+    log "Testing: Plugin loads correctly..."
     start_tmux_session
 
     # Check that our keybindings exist
@@ -261,8 +268,8 @@ test_plugin_loads() {
 
 # Test: CTRL-X CTRL-X opens fzf (with no snippets, should show message)
 test_search_empty() {
-    echo ""
-    echo "Testing: CTRL-X CTRL-X with no snippets..."
+    log ""
+    log "Testing: CTRL-X CTRL-X with no snippets..."
     start_tmux_session
 
     # Press CTRL-X CTRL-X
@@ -282,7 +289,7 @@ test_search_empty() {
     else
         TESTS_RUN=$((TESTS_RUN + 1))
         TESTS_PASSED=$((TESTS_PASSED + 1))
-        echo "  ${GREEN}✓${RESET} fzf does not open when no snippets exist"
+        log "  ${GREEN}✓${RESET} fzf does not open when no snippets exist"
     fi
 
     stop_tmux_session
@@ -290,8 +297,8 @@ test_search_empty() {
 
 # Test: CTRL-X CTRL-X shows snippets in fzf
 test_search_with_snippets() {
-    echo ""
-    echo "Testing: CTRL-X CTRL-X shows snippets in fzf..."
+    log ""
+    log "Testing: CTRL-X CTRL-X shows snippets in fzf..."
     start_tmux_session
 
     # Create some test snippets
@@ -316,8 +323,8 @@ test_search_with_snippets() {
 
 # Test: Selecting a snippet replaces buffer
 test_select_replaces_buffer() {
-    echo ""
-    echo "Testing: Selecting snippet replaces command line..."
+    log ""
+    log "Testing: Selecting snippet replaces command line..."
     start_tmux_session
 
     create_test_snippet "test-echo" "Echo test" "echo 'snippet works'"
@@ -348,8 +355,8 @@ test_select_replaces_buffer() {
 
 # Test: CTRL-X CTRL-S saves a snippet
 test_save_snippet() {
-    echo ""
-    echo "Testing: CTRL-X CTRL-S saves snippet..."
+    log ""
+    log "Testing: CTRL-X CTRL-S saves snippet..."
     start_tmux_session
 
     # Type a command to save as snippet
@@ -389,8 +396,8 @@ test_save_snippet() {
 
 # Test: fzf filter works with query
 test_fzf_filter() {
-    echo ""
-    echo "Testing: fzf filters snippets by query..."
+    log ""
+    log "Testing: fzf filters snippets by query..."
     start_tmux_session
 
     create_test_snippet "docker-run" "Run container" "docker run -it ubuntu"
@@ -421,8 +428,8 @@ test_fzf_filter() {
 
 # Test: Alt-X wraps snippet in function
 test_alt_x_wraps_function() {
-    echo ""
-    echo "Testing: ALT-X wraps snippet in anonymous function..."
+    log ""
+    log "Testing: ALT-X wraps snippet in anonymous function..."
     start_tmux_session
 
     create_test_snippet "echo-arg" "Echo with arg" 'echo "Hello $1"'
@@ -451,11 +458,11 @@ test_alt_x_wraps_function() {
 # Run Tests
 # =============================================================================
 
-echo "╔════════════════════════════════════════╗"
-echo "║   zsh-snip E2E Tests (tmux)            ║"
-echo "╚════════════════════════════════════════╝"
-echo ""
-echo "${BLUE}Using tmux session: $TMUX_SESSION${RESET}"
+log "╔════════════════════════════════════════╗"
+log "║   zsh-snip E2E Tests (tmux)            ║"
+log "╚════════════════════════════════════════╝"
+log ""
+log "${BLUE}Using tmux session: $TMUX_SESSION${RESET}"
 
 # Filter tests if TEST_FILTER is set
 run_test() {
@@ -481,7 +488,7 @@ run_test test_alt_x_wraps_function
 # =============================================================================
 # Summary
 # =============================================================================
-echo ""
+log ""
 echo "=========================================="
 echo "E2E Tests Summary"
 echo "=========================================="

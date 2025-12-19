@@ -7,6 +7,7 @@
 # - Real file I/O with temp directories
 #
 # Run: zsh tests/integration/test_integration.zsh
+# Quiet mode (only failures): QUIET=1 zsh tests/integration/test_integration.zsh
 
 set -e
 setopt EXTENDED_GLOB
@@ -22,6 +23,12 @@ TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
 TEST_DIR=""
+
+# Quiet mode - only show failures
+: ${QUIET:=0}
+
+# Log function that respects QUIET mode
+log() { [[ "$QUIET" != "1" ]] && echo "$@"; return 0; }
 
 # Colors (only if terminal supports them)
 if [[ -t 1 ]]; then
@@ -41,7 +48,7 @@ assert_eq() {
 
     if [[ "$expected" == "$actual" ]]; then
         TESTS_PASSED=$((TESTS_PASSED + 1))
-        echo "  ${GREEN}✓${RESET} $msg"
+        log "  ${GREEN}✓${RESET} $msg"
     else
         TESTS_FAILED=$((TESTS_FAILED + 1))
         echo "  ${RED}✗${RESET} $msg"
@@ -58,7 +65,7 @@ assert_contains() {
 
     if [[ "$haystack" == *"$needle"* ]]; then
         TESTS_PASSED=$((TESTS_PASSED + 1))
-        echo "  ${GREEN}✓${RESET} $msg"
+        log "  ${GREEN}✓${RESET} $msg"
     else
         TESTS_FAILED=$((TESTS_FAILED + 1))
         echo "  ${RED}✗${RESET} $msg"
@@ -74,7 +81,7 @@ assert_file_exists() {
 
     if [[ -f "$filepath" ]]; then
         TESTS_PASSED=$((TESTS_PASSED + 1))
-        echo "  ${GREEN}✓${RESET} $msg"
+        log "  ${GREEN}✓${RESET} $msg"
     else
         TESTS_FAILED=$((TESTS_FAILED + 1))
         echo "  ${RED}✗${RESET} $msg"
@@ -89,7 +96,7 @@ assert_file_not_exists() {
 
     if [[ ! -e "$filepath" ]]; then
         TESTS_PASSED=$((TESTS_PASSED + 1))
-        echo "  ${GREEN}✓${RESET} $msg"
+        log "  ${GREEN}✓${RESET} $msg"
     else
         TESTS_FAILED=$((TESTS_FAILED + 1))
         echo "  ${RED}✗${RESET} $msg"
@@ -227,7 +234,7 @@ EOF
 # Test: Save workflow with editor interaction
 # =============================================================================
 test_save_creates_snippet_and_opens_editor() {
-    echo "Testing: Save creates snippet file and opens editor..."
+    log "Testing: Save creates snippet file and opens editor..."
     setup_test_env
 
     # Simulate user typing a command
@@ -257,8 +264,8 @@ test_save_creates_snippet_and_opens_editor() {
 # Test: Save with trailing comment extracts description
 # =============================================================================
 test_save_extracts_trailing_comment() {
-    echo ""
-    echo "Testing: Save extracts trailing comment as description..."
+    log ""
+    log "Testing: Save extracts trailing comment as description..."
     setup_test_env
 
     BUFFER="git status # check repo state"
@@ -281,8 +288,8 @@ test_save_extracts_trailing_comment() {
 # Test: Save with name: prefix in comment uses that name
 # =============================================================================
 test_save_uses_name_from_comment() {
-    echo ""
-    echo "Testing: Save uses name from trailing comment..."
+    log ""
+    log "Testing: Save uses name from trailing comment..."
     setup_test_env
 
     BUFFER="kubectl get pods -A # k8s-pods: List all pods"
@@ -303,8 +310,8 @@ test_save_uses_name_from_comment() {
 # Test: Editor rename triggers file rename
 # =============================================================================
 test_editor_rename_moves_file() {
-    echo ""
-    echo "Testing: Editor rename triggers file rename..."
+    log ""
+    log "Testing: Editor rename triggers file rename..."
     setup_test_env
 
     # Create editor script that changes the name field
@@ -331,8 +338,8 @@ SCRIPT
 # Test: Search with Enter replaces buffer
 # =============================================================================
 test_search_enter_replaces_buffer() {
-    echo ""
-    echo "Testing: Search with Enter replaces buffer..."
+    log ""
+    log "Testing: Search with Enter replaces buffer..."
     setup_test_env
 
     # Create test snippets
@@ -358,8 +365,8 @@ test_search_enter_replaces_buffer() {
 # Test: Search with CTRL-I inserts at cursor
 # =============================================================================
 test_search_ctrl_i_inserts_at_cursor() {
-    echo ""
-    echo "Testing: Search with CTRL-I inserts at cursor..."
+    log ""
+    log "Testing: Search with CTRL-I inserts at cursor..."
     setup_test_env
 
     create_test_snippet "flag-rm" "Remove flag" "--rm"
@@ -380,8 +387,8 @@ test_search_ctrl_i_inserts_at_cursor() {
 # Test: Search with CTRL-E opens editor
 # =============================================================================
 test_search_ctrl_e_opens_editor() {
-    echo ""
-    echo "Testing: Search with CTRL-E opens editor..."
+    log ""
+    log "Testing: Search with CTRL-E opens editor..."
     setup_test_env
 
     create_test_snippet "test-snippet" "Test" "echo hello"
@@ -424,8 +431,8 @@ FZF
 # Test: Search with CTRL-D deletes snippet (with mock confirmation)
 # =============================================================================
 test_search_ctrl_d_deletes_snippet() {
-    echo ""
-    echo "Testing: Search with CTRL-D deletes snippet..."
+    log ""
+    log "Testing: Search with CTRL-D deletes snippet..."
     setup_test_env
 
     create_test_snippet "to-delete" "Will be deleted" "echo delete me"
@@ -439,7 +446,7 @@ test_search_ctrl_d_deletes_snippet() {
     local files_before=$(ls "$ZSH_SNIP_DIR" | wc -l)
     assert_eq "1" "$files_before" "one snippet exists before test"
 
-    echo "  ${YELLOW}⚠${RESET} Full CTRL-D test requires interactive input (skipped)"
+    log "  ${YELLOW}⚠${RESET} Full CTRL-D test requires interactive input (skipped)"
 
     teardown_test_env
 }
@@ -448,8 +455,8 @@ test_search_ctrl_d_deletes_snippet() {
 # Test: Search with ALT-X wraps in anonymous function
 # =============================================================================
 test_search_alt_x_wraps_function() {
-    echo ""
-    echo "Testing: Search with ALT-X wraps in anonymous function..."
+    log ""
+    log "Testing: Search with ALT-X wraps in anonymous function..."
     setup_test_env
 
     create_test_snippet "echo-test" "Echo test" $'echo "Hello $1"'
@@ -472,8 +479,8 @@ test_search_alt_x_wraps_function() {
 # Test: Local snippet save to project directory
 # =============================================================================
 test_save_local_creates_in_project() {
-    echo ""
-    echo "Testing: Save local creates snippet in project directory..."
+    log ""
+    log "Testing: Save local creates snippet in project directory..."
     setup_test_env
 
     # Save original directory and change to project directory
@@ -501,8 +508,8 @@ test_save_local_creates_in_project() {
 # Test: Duplicate snippet functionality
 # =============================================================================
 test_duplicate_snippet() {
-    echo ""
-    echo "Testing: Duplicate snippet creates new file..."
+    log ""
+    log "Testing: Duplicate snippet creates new file..."
     setup_test_env
 
     create_test_snippet "docker-1" "Original docker command" "docker run nginx"
@@ -523,8 +530,8 @@ test_duplicate_snippet() {
 # Test: Subdirectory support
 # =============================================================================
 test_subdirectory_snippets() {
-    echo ""
-    echo "Testing: Subdirectory snippet support..."
+    log ""
+    log "Testing: Subdirectory snippet support..."
     setup_test_env
 
     # Create editor script that changes name to include subdirectory
@@ -550,8 +557,8 @@ SCRIPT
 # Test: Empty buffer handling
 # =============================================================================
 test_empty_buffer_rejected() {
-    echo ""
-    echo "Testing: Empty buffer is rejected..."
+    log ""
+    log "Testing: Empty buffer is rejected..."
     setup_test_env
 
     BUFFER=""
@@ -570,8 +577,8 @@ test_empty_buffer_rejected() {
 # Test: Snippet with args header prompts for input
 # =============================================================================
 test_snippet_with_args_header() {
-    echo ""
-    echo "Testing: Snippet with args header recognized..."
+    log ""
+    log "Testing: Snippet with args header recognized..."
     setup_test_env
 
     # Create snippet with args header
@@ -594,10 +601,10 @@ SNIPPET
 # =============================================================================
 # Run all tests
 # =============================================================================
-echo "╔════════════════════════════════════════╗"
-echo "║   zsh-snip Integration Tests           ║"
-echo "╚════════════════════════════════════════╝"
-echo ""
+log "╔════════════════════════════════════════╗"
+log "║   zsh-snip Integration Tests           ║"
+log "╚════════════════════════════════════════╝"
+log ""
 
 test_save_creates_snippet_and_opens_editor
 test_save_extracts_trailing_comment
@@ -617,7 +624,7 @@ test_snippet_with_args_header
 # =============================================================================
 # Summary
 # =============================================================================
-echo ""
+log ""
 echo "=========================================="
 echo "Integration Tests Summary"
 echo "=========================================="

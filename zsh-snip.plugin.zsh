@@ -295,7 +295,7 @@ _zsh_snip_slugify() {
 
 # Save current buffer as snippet (CTRL-X CTRL-S)
 _zsh_snip_save() {
-  setopt LOCAL_OPTIONS EXTENDED_GLOB
+  setopt LOCAL_OPTIONS EXTENDED_GLOB INTERACTIVE_COMMENTS
   local buffer="$BUFFER"
   local cmd
   local id
@@ -377,7 +377,8 @@ _zsh_snip_insert_at_cursor() {
 
 # Search and select snippet (CTRL-X CTRL-X)
 _zsh_snip_search() {
-  setopt LOCAL_OPTIONS EXTENDED_GLOB
+  # EXTENDED_GLOB for glob qualifiers, INTERACTIVE_COMMENTS so # in $() is a comment
+  setopt LOCAL_OPTIONS EXTENDED_GLOB INTERACTIVE_COMMENTS
 
   # Check fzf is available
   if ! command -v fzf &>/dev/null; then
@@ -397,15 +398,17 @@ _zsh_snip_search() {
   local initial_query="$BUFFER"
 
   # Build preview command using field 4 (full path)
+  # Note: {4} refers to the 4th tab-separated field
   if command -v bat &>/dev/null; then
-    preview_cmd="bat --style=plain --color=always --language=bash {4}"
+    preview_cmd='bat --style=plain --color=always --language=bash {4}'
   else
-    preview_cmd="cat {4}"
+    preview_cmd='cat {4}'
   fi
 
   # Loop to allow returning to fzf after delete
   while true; do
     # Gather snippets from both global and local directories
+    # N = nullglob (empty array if no matches), . = regular files only
     local global_files=("$global_dir"/**/*(N.))
     local local_files=()
     [[ -n "$local_dir" ]] && local_files=("$local_dir"/**/*(N.))
@@ -424,8 +427,11 @@ _zsh_snip_search() {
 
     # Generate list: prefix+name[US]description[US]preview[US]fullpath
     # Using ASCII unit separator (\x1f) to avoid conflicts with | in content
+    # Note: We generate fzf_list first, then pipe to fzf separately.
+    # Direct pipeline { ... } | column | fzf breaks in zle widget context.
     local US=$'\x1f'
-    fzf_output=$(
+    local fzf_list
+    fzf_list=$(
       {
         # Global snippets (prefix: ~)
         for f in "${global_files[@]}"; do
@@ -451,8 +457,11 @@ _zsh_snip_search() {
           fi
           printf '! %s%s%s%s%s%s%s\n' "$name" "$US" "$desc" "$US" "$cmd_preview" "$US" "$f"
         done
-      } | column -t -s $'\x1f' -o $'\t' | fzf \
-        --delimiter='\t' \
+      } | column -t -s $'\x1f' -o $'\t'
+    )
+
+    fzf_output=$(echo "$fzf_list" | fzf \
+        --delimiter=$'\t' \
         --with-nth=1,2,3 \
         --preview="$preview_cmd" \
         --preview-window=top:50% \
@@ -468,7 +477,13 @@ _zsh_snip_search() {
     initial_query="${fzf_output%%$'\n'*}"
     local rest="${fzf_output#*$'\n'}"
     key="${rest%%$'\n'*}"
-    selected="${rest#*$'\n'}"
+    # Extract selection only if there's a newline after the key
+    # When fzf has no selection, output may be just "query\nkey" without trailing selection
+    if [[ "$rest" == *$'\n'* ]]; then
+      selected="${rest#*$'\n'}"
+    else
+      selected=""
+    fi
 
     if [[ -z "$selected" ]]; then
       break
@@ -476,7 +491,8 @@ _zsh_snip_search() {
 
     # Extract display name (field 1) and full path (field 4)
     local display_name="${selected%%$'\t'*}"
-    display_name="${display_name%%[[:space:]]#}"  # Trim trailing whitespace
+    # Trim trailing whitespace - use sed instead of EXTENDED_GLOB pattern
+    display_name=$(echo "$display_name" | sed 's/[[:space:]]*$//')
     # Get field 4 (full path) - split by tab and get last field
     filepath="${selected##*$'\t'}"
     command=$(_zsh_snip_read_command "$filepath")
@@ -604,7 +620,7 @@ _zsh_snip_search() {
 
 # Save current buffer as local/project snippet (CTRL-X CTRL-P)
 _zsh_snip_save_local() {
-  setopt LOCAL_OPTIONS EXTENDED_GLOB
+  setopt LOCAL_OPTIONS EXTENDED_GLOB INTERACTIVE_COMMENTS
   local buffer="$BUFFER"
   local cmd
   local id

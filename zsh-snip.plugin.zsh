@@ -6,6 +6,23 @@ ZSH_SNIP_DIR="${ZSH_SNIP_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/zsh-snip}"
 ZSH_SNIP_EDITOR="${ZSH_SNIP_EDITOR:-${EDITOR:-vim}}"
 ZSH_SNIP_LOCAL_PATH="${ZSH_SNIP_LOCAL_PATH:-.zsh-snip}"
 # ZSH_SNIP_YANK_CMD - auto-detected if unset, set empty to disable
+# ZSH_SNIP_DEBUG_TIMING - set to 1 to show timing diagnostics
+
+# Timing helper - outputs elapsed time in ms if debugging enabled
+# Usage: _zsh_snip_timing_start; ...; _zsh_snip_timing_end "label"
+_zsh_snip_timing_start() {
+  [[ -n "$ZSH_SNIP_DEBUG_TIMING" ]] || return
+  typeset -g _zsh_snip_timing_ns
+  _zsh_snip_timing_ns=$(($(date +%s%N)))
+}
+
+_zsh_snip_timing_end() {
+  [[ -n "$ZSH_SNIP_DEBUG_TIMING" ]] || return
+  local label="$1"
+  local end_ns=$(($(date +%s%N)))
+  local elapsed_ms=$(( (end_ns - _zsh_snip_timing_ns) / 1000000 ))
+  echo "[timing] $label: ${elapsed_ms}ms" >&2
+}
 
 # Detect clipboard command for yank functionality
 # Returns: clipboard command string, or empty if unavailable/disabled
@@ -483,6 +500,7 @@ _zsh_snip_search() {
     # Direct pipeline { ... } | column | fzf breaks in zle widget context.
     local US=$'\x1f'
     local fzf_list
+    _zsh_snip_timing_start
     fzf_list=$(
       {
         # User snippets (prefix: ~)
@@ -511,6 +529,7 @@ _zsh_snip_search() {
         done
       } | column -t -s $'\x1f' -o $'\t'
     )
+    _zsh_snip_timing_end "fzf_list generation (${#user_files[@]} user + ${#local_files[@]} local snippets)"
 
     # Check if yank/clipboard is available
     local yank_cmd=$(_zsh_snip_get_yank_cmd)

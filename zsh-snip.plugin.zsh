@@ -299,6 +299,51 @@ _zsh_snip_wrap_anon_func() {
   printf '%s\n} ' "$command"
 }
 
+# Read header and first line of command in one pass (optimized for listing)
+# Sets reply variables: reply_name, reply_desc, reply_args, reply_preview
+# Args: filepath [max_preview_length]
+_zsh_snip_read_header() {
+  local filepath="$1"
+  local max_preview="${2:-50}"
+  local line
+  local in_header=1
+
+  # Initialize reply variables
+  typeset -g reply_name="" reply_desc="" reply_args="" reply_preview=""
+
+  # Read file line by line until we get first content line
+  while IFS= read -r line; do
+    if (( in_header )); then
+      # Check for header separator
+      if [[ "$line" == "# ---" ]]; then
+        in_header=0
+        continue
+      fi
+
+      # Extract header fields (escape # in pattern matching)
+      if [[ "$line" == "# name: "* ]]; then
+        reply_name="${line#\# name: }"
+      elif [[ "$line" == "# description: "* ]]; then
+        reply_desc="${line#\# description: }"
+      elif [[ "$line" == "# args: "* ]]; then
+        reply_args="${line#\# args: }"
+      fi
+    else
+      # First line after header separator - this is our preview
+      reply_preview="$line"
+      # Truncate if needed
+      if (( ${#reply_preview} > max_preview )); then
+        reply_preview="${reply_preview[1,$max_preview]}..."
+      fi
+      # Got what we need, stop reading
+      break
+    fi
+  done < "$filepath"
+
+  # Return success (while loop returns non-zero on EOF which breaks set -e)
+  return 0
+}
+
 # Read first line of command, truncated for display
 _zsh_snip_read_command_preview() {
   local filepath="$1"
@@ -508,8 +553,9 @@ _zsh_snip_search() {
           [[ -f "$f" ]] || continue
           local name="${f#$user_dir/}"
           [[ "$name" == .* || "$name" == */.* ]] && continue
-          local desc=$(_zsh_snip_read_description "$f")
-          local cmd_preview=$(_zsh_snip_read_command_preview "$f" "$cmd_width")
+          _zsh_snip_read_header "$f" "$cmd_width"
+          local desc="$reply_desc"
+          local cmd_preview="$reply_preview"
           if (( ${#desc} > desc_width )); then
             desc="${desc[1,$((desc_width - 1))]}…"
           fi
@@ -520,8 +566,9 @@ _zsh_snip_search() {
           [[ -f "$f" ]] || continue
           local name="${f#$local_dir/}"
           [[ "$name" == .* || "$name" == */.* ]] && continue
-          local desc=$(_zsh_snip_read_description "$f")
-          local cmd_preview=$(_zsh_snip_read_command_preview "$f" "$cmd_width")
+          _zsh_snip_read_header "$f" "$cmd_width"
+          local desc="$reply_desc"
+          local cmd_preview="$reply_preview"
           if (( ${#desc} > desc_width )); then
             desc="${desc[1,$((desc_width - 1))]}…"
           fi
@@ -899,7 +946,8 @@ _zsh_snip_cli_list() {
       if (( names_only )); then
         results+=("$name")
       else
-        desc=$(_zsh_snip_read_description "$f")
+        _zsh_snip_read_header "$f"
+        desc="$reply_desc"
         if (( full_path )); then
           display_path="$local_dir"
         else
@@ -930,7 +978,8 @@ _zsh_snip_cli_list() {
       if (( names_only )); then
         results+=("$name")
       else
-        desc=$(_zsh_snip_read_description "$f")
+        _zsh_snip_read_header "$f"
+        desc="$reply_desc"
         if (( full_path )); then
           display_path="$user_dir"
         else

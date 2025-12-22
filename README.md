@@ -147,6 +147,7 @@ You can then add arguments and press Enter.
 | `ZSH_SNIP_EDITOR` | `$EDITOR` or `vim` | Editor for snippet editing |
 | `ZSH_SNIP_LOCAL_PATH` | `.zsh-snip` | Directory name for project-local snippets (set to empty string to disable) |
 | `ZSH_SNIP_YANK_CMD` | auto-detected | Clipboard command for `Ctrl+Y` (set to empty string to disable) |
+| `ZSH_SNIP_ABBR` | `0` | Set to `1` to enable zsh-abbr integration (auto-load abbreviations) |
 
 ## Storage
 
@@ -193,6 +194,8 @@ zsh-snip path <name>        # Show full path to snippet file
 zsh-snip expand <name>      # Output snippet content (no header)
 zsh-snip exec <name> [args] # Execute snippet with arguments
 zsh-snip yank <name>        # Copy snippet content to clipboard
+zsh-snip abbr list          # List snippets with abbreviations
+zsh-snip abbr load          # Load abbreviations into zsh-abbr
 ```
 
 ### Options
@@ -233,6 +236,76 @@ zsh-snip expand deploy          # Uses local if exists, else user
 zsh-snip expand --user deploy   # Always use user snippet
 zsh-snip expand --local deploy  # Always use local snippet (error if not found)
 ```
+
+## zsh-abbr Integration
+
+zsh-snip can integrate with [zsh-abbr](https://github.com/olets/zsh-abbr) to register snippet abbreviations. Add an `abbr:` header to your snippets:
+
+```bash
+# name: git-log
+# description: Show git log with graph
+# abbr: gl glog
+# ---
+git log --oneline --decorate --graph
+```
+
+Now typing `gl` and pressing space expands to the full command.
+
+### Enabling Abbreviations
+
+Add to your `.zshrc` (after sourcing both plugins):
+
+```zsh
+export ZSH_SNIP_ABBR=1
+```
+
+This automatically:
+- Loads user snippet abbreviations on shell startup
+- Loads/unloads project-local abbreviations when you `cd` into/out of projects
+
+### Manual Commands
+
+```zsh
+zsh-snip abbr list              # Show all snippets with abbreviations
+zsh-snip abbr list --local      # Only project-local snippets
+zsh-snip abbr load              # Manually reload abbreviations
+zsh-snip abbr load --user       # Load only user abbreviations
+```
+
+### Example Workflow
+
+```zsh
+# Create a snippet with abbreviation
+cat > ~/.local/share/zsh-snip/docker-ps << 'EOF'
+# name: docker-ps
+# description: List running containers
+# abbr: dps
+# ---
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+EOF
+
+# Reload abbreviations
+zsh-snip abbr load
+
+# Now typing "dps<space>" expands to the full docker command
+```
+
+### Project-Local Abbreviations
+
+Project snippets can define their own abbreviations that only apply in that project:
+
+```
+my-project/.zsh-snip/deploy
+```
+
+```bash
+# name: deploy
+# abbr: dp
+# ---
+./scripts/deploy.sh
+```
+
+When you `cd` into `my-project`, `dp` becomes available. When you leave, it's unloaded.
 
 ## Example Snippets
 

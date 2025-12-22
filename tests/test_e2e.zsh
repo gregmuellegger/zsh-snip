@@ -469,6 +469,247 @@ test_alt_x_wraps_function() {
     stop_tmux_session
 }
 
+# Test: abbr load registers abbreviations
+test_abbr_load() {
+    log ""
+    log "Testing: zsh-snip abbr load registers abbreviations..."
+
+    # Create a special test environment with abbr enabled
+    TEST_DIR=$(mktemp -d)
+    export ZSH_SNIP_DIR="$TEST_DIR/snippets"
+    mkdir -p "$ZSH_SNIP_DIR"
+
+    # Get full path to zsh
+    local zsh_path
+    zsh_path=$(command -v zsh)
+
+    # Create .zshenv
+    cat > "$TEST_DIR/.zshenv" <<'ZSHENV'
+skip_global_compinit=1
+ZSHENV
+
+    # Create .zshrc with abbr enabled
+    cat > "$TEST_DIR/.zshrc" <<ZSHRC
+stty -ixon -ixoff 2>/dev/null || true
+export ZSH_SNIP_DIR="$ZSH_SNIP_DIR"
+export ZSH_SNIP_LOCAL_PATH=".zsh-snip"
+export ZSH_SNIP_ABBR=1
+export ZSH_SNIP_EDITOR="true"
+export TERM=xterm-256color
+PS1='READY> '
+source "$PROJECT_DIR/zsh-snip.plugin.zsh"
+ZSHRC
+
+    # Create a snippet with abbr field
+    cat > "$ZSH_SNIP_DIR/test-abbr" <<'EOF'
+# name: test-abbr
+# description: Test abbreviation
+# abbr: gst
+# created: 2024-01-01T00:00:00+00:00
+# ---
+git status
+EOF
+
+    # Start session with unique name for this test
+    local test_session="zsh-snip-abbr-test-$$"
+    tmux new-session -d -s "$test_session" -x 120 -y 30 \
+        "ZDOTDIR='$TEST_DIR' ZSH_SNIP_DIR='$ZSH_SNIP_DIR' ZSH_SNIP_ABBR=1 $zsh_path -i"
+
+    sleep 1
+
+    # Wait for shell to be ready
+    local max_wait=50
+    local i=0
+    while (( i < max_wait )); do
+        local pane_content=$(tmux capture-pane -t "$test_session" -p 2>/dev/null || echo "")
+        if [[ "$pane_content" == *"READY>"* ]] || [[ "$pane_content" == *">"* ]]; then
+            sleep 0.1
+            break
+        fi
+        sleep 0.1
+        i=$((i + 1))
+    done
+
+    # Run abbr list to check if abbreviation was registered
+    tmux send-keys -t "$test_session" "abbr list-abbreviations | grep gst" Enter
+    sleep 0.5
+
+    local output=$(tmux capture-pane -t "$test_session" -p)
+    assert_contains "$output" "gst" "abbreviation gst was registered"
+
+    # Cleanup
+    tmux kill-session -t "$test_session" 2>/dev/null || true
+    rm -rf "$TEST_DIR"
+}
+
+# Test: chpwd hook loads local abbrs when entering project directory
+test_abbr_chpwd() {
+    log ""
+    log "Testing: chpwd hook loads local abbrs on directory change..."
+
+    # Create test environment
+    TEST_DIR=$(mktemp -d)
+    export ZSH_SNIP_DIR="$TEST_DIR/snippets"
+    mkdir -p "$ZSH_SNIP_DIR"
+
+    # Create a project directory with local snippets
+    local project_dir="$TEST_DIR/project"
+    mkdir -p "$project_dir/.zsh-snip"
+
+    cat > "$project_dir/.zsh-snip/local-abbr" <<'EOF'
+# name: local-abbr
+# description: Local abbreviation
+# abbr: dps
+# created: 2024-01-01T00:00:00+00:00
+# ---
+docker ps -a
+EOF
+
+    # Get full path to zsh
+    local zsh_path
+    zsh_path=$(command -v zsh)
+
+    # Create .zshenv
+    cat > "$TEST_DIR/.zshenv" <<'ZSHENV'
+skip_global_compinit=1
+ZSHENV
+
+    # Create .zshrc with abbr enabled
+    cat > "$TEST_DIR/.zshrc" <<ZSHRC
+stty -ixon -ixoff 2>/dev/null || true
+export ZSH_SNIP_DIR="$ZSH_SNIP_DIR"
+export ZSH_SNIP_LOCAL_PATH=".zsh-snip"
+export ZSH_SNIP_ABBR=1
+export ZSH_SNIP_EDITOR="true"
+export TERM=xterm-256color
+PS1='READY> '
+source "$PROJECT_DIR/zsh-snip.plugin.zsh"
+ZSHRC
+
+    # Start session
+    local test_session="zsh-snip-chpwd-test-$$"
+    tmux new-session -d -s "$test_session" -x 120 -y 30 \
+        "ZDOTDIR='$TEST_DIR' ZSH_SNIP_DIR='$ZSH_SNIP_DIR' ZSH_SNIP_ABBR=1 $zsh_path -i"
+
+    sleep 1
+
+    # Wait for shell
+    local max_wait=50
+    local i=0
+    while (( i < max_wait )); do
+        local pane_content=$(tmux capture-pane -t "$test_session" -p 2>/dev/null || echo "")
+        if [[ "$pane_content" == *"READY>"* ]] || [[ "$pane_content" == *">"* ]]; then
+            sleep 0.1
+            break
+        fi
+        sleep 0.1
+        i=$((i + 1))
+    done
+
+    # cd into project directory (should trigger chpwd hook)
+    tmux send-keys -t "$test_session" "cd $project_dir" Enter
+    sleep 0.5
+
+    # Check if local abbr was loaded
+    tmux send-keys -t "$test_session" "abbr list-abbreviations | grep dps" Enter
+    sleep 0.5
+
+    local output=$(tmux capture-pane -t "$test_session" -p)
+    assert_contains "$output" "dps" "local abbreviation dps was loaded via chpwd"
+
+    # Cleanup
+    tmux kill-session -t "$test_session" 2>/dev/null || true
+    rm -rf "$TEST_DIR"
+}
+
+# Test: local abbrs are unloaded when leaving project directory
+test_abbr_unload() {
+    log ""
+    log "Testing: local abbrs are unloaded when leaving project..."
+
+    # Create test environment
+    TEST_DIR=$(mktemp -d)
+    export ZSH_SNIP_DIR="$TEST_DIR/snippets"
+    mkdir -p "$ZSH_SNIP_DIR"
+
+    # Create a project directory with local snippets
+    local project_dir="$TEST_DIR/project"
+    mkdir -p "$project_dir/.zsh-snip"
+
+    cat > "$project_dir/.zsh-snip/local-abbr" <<'EOF'
+# name: local-abbr
+# description: Local abbreviation
+# abbr: dps
+# created: 2024-01-01T00:00:00+00:00
+# ---
+docker ps -a
+EOF
+
+    # Get full path to zsh
+    local zsh_path
+    zsh_path=$(command -v zsh)
+
+    # Create .zshenv
+    cat > "$TEST_DIR/.zshenv" <<'ZSHENV'
+skip_global_compinit=1
+ZSHENV
+
+    # Create .zshrc with abbr enabled - start in project dir
+    cat > "$TEST_DIR/.zshrc" <<ZSHRC
+stty -ixon -ixoff 2>/dev/null || true
+export ZSH_SNIP_DIR="$ZSH_SNIP_DIR"
+export ZSH_SNIP_LOCAL_PATH=".zsh-snip"
+export ZSH_SNIP_ABBR=1
+export ZSH_SNIP_EDITOR="true"
+export TERM=xterm-256color
+PS1='READY> '
+source "$PROJECT_DIR/zsh-snip.plugin.zsh"
+cd "$project_dir"
+ZSHRC
+
+    # Start session
+    local test_session="zsh-snip-unload-test-$$"
+    tmux new-session -d -s "$test_session" -x 120 -y 30 \
+        "ZDOTDIR='$TEST_DIR' ZSH_SNIP_DIR='$ZSH_SNIP_DIR' ZSH_SNIP_ABBR=1 $zsh_path -i"
+
+    sleep 1
+
+    # Wait for shell
+    local max_wait=50
+    local i=0
+    while (( i < max_wait )); do
+        local pane_content=$(tmux capture-pane -t "$test_session" -p 2>/dev/null || echo "")
+        if [[ "$pane_content" == *"READY>"* ]] || [[ "$pane_content" == *">"* ]]; then
+            sleep 0.1
+            break
+        fi
+        sleep 0.1
+        i=$((i + 1))
+    done
+
+    # First verify abbr is loaded
+    tmux send-keys -t "$test_session" "abbr list-abbreviations | grep -q dps && echo 'LOADED' || echo 'NOT_LOADED'" Enter
+    sleep 0.5
+
+    local output=$(tmux capture-pane -t "$test_session" -p)
+    assert_contains "$output" "LOADED" "local abbreviation was initially loaded"
+
+    # cd out of project directory
+    tmux send-keys -t "$test_session" "cd /" Enter
+    sleep 0.5
+
+    # Check if abbr was unloaded
+    tmux send-keys -t "$test_session" "abbr list-abbreviations | grep -q dps && echo 'STILL_LOADED' || echo 'UNLOADED'" Enter
+    sleep 0.5
+
+    output=$(tmux capture-pane -t "$test_session" -p)
+    assert_contains "$output" "UNLOADED" "local abbreviation was unloaded when leaving project"
+
+    # Cleanup
+    tmux kill-session -t "$test_session" 2>/dev/null || true
+    rm -rf "$TEST_DIR"
+}
+
 # =============================================================================
 # Run Tests
 # =============================================================================
@@ -499,6 +740,9 @@ run_test test_select_replaces_buffer
 run_test test_save_snippet
 run_test test_fzf_filter
 run_test test_alt_x_wraps_function
+run_test test_abbr_load
+run_test test_abbr_chpwd
+run_test test_abbr_unload
 
 # =============================================================================
 # Summary

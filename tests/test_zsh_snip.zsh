@@ -1016,6 +1016,322 @@ rm -rf "$YANK_TEST_DIR"
 
 
 # =============================================================================
+# Tests for _zsh_snip_read_abbr
+# =============================================================================
+log ""
+log "Testing _zsh_snip_read_abbr..."
+
+ABBR_TEST_DIR=$(mktemp -d)
+
+# Test: snippet without abbr header returns empty
+cat > "$ABBR_TEST_DIR/no-abbr" <<'EOF'
+# name: no-abbr
+# description: No abbreviation
+# ---
+git status
+EOF
+abbr=$(_zsh_snip_read_abbr "$ABBR_TEST_DIR/no-abbr")
+assert_eq "" "$abbr" "returns empty when no abbr header"
+
+# Test: snippet with single abbr
+cat > "$ABBR_TEST_DIR/single-abbr" <<'EOF'
+# name: single-abbr
+# abbr: gs
+# description: Git status shortcut
+# ---
+git status
+EOF
+abbr=$(_zsh_snip_read_abbr "$ABBR_TEST_DIR/single-abbr")
+assert_eq "gs" "$abbr" "reads single abbr correctly"
+
+# Test: snippet with multiple abbrs (space-separated)
+cat > "$ABBR_TEST_DIR/multi-abbr" <<'EOF'
+# name: multi-abbr
+# abbr: gl glog gll
+# ---
+git log --oneline --decorate
+EOF
+abbr=$(_zsh_snip_read_abbr "$ABBR_TEST_DIR/multi-abbr")
+assert_eq "gl glog gll" "$abbr" "reads multiple abbrs correctly"
+
+# Test: abbr field with extra whitespace
+cat > "$ABBR_TEST_DIR/whitespace-abbr" <<'EOF'
+# name: whitespace-abbr
+# abbr:   gl   glog
+# ---
+git log
+EOF
+abbr=$(_zsh_snip_read_abbr "$ABBR_TEST_DIR/whitespace-abbr")
+assert_eq "  gl   glog" "$abbr" "reads abbr with whitespace (trailing whitespace trimmed)"
+
+# Test: abbr in complex header with shebang and comments
+cat > "$ABBR_TEST_DIR/complex-header" <<'EOF'
+#!/usr/bin/env zsh
+# Complex snippet with multiple header fields
+# name: complex-header
+# description: Complex example
+# abbr: gp gpush
+# args: <branch>
+# Remember to check remote first
+# ---
+git push origin "$1"
+EOF
+abbr=$(_zsh_snip_read_abbr "$ABBR_TEST_DIR/complex-header")
+assert_eq "gp gpush" "$abbr" "reads abbr from complex header"
+
+# Test: abbr in content (after # ---) should not be matched
+cat > "$ABBR_TEST_DIR/abbr-in-content" <<'EOF'
+# name: abbr-in-content
+# abbr: realabbr
+# ---
+# This script demonstrates abbr usage
+# abbr: fakeabbr
+echo "not an abbr"
+EOF
+abbr=$(_zsh_snip_read_abbr "$ABBR_TEST_DIR/abbr-in-content")
+assert_eq "realabbr" "$abbr" "only reads abbr from header, not content"
+
+rm -rf "$ABBR_TEST_DIR"
+
+
+# =============================================================================
+# Tests for zsh-snip abbr list
+# =============================================================================
+log ""
+log "Testing zsh-snip abbr list..."
+
+# Create test environment
+ABBR_CLI_TEST_DIR=$(mktemp -d)
+ABBR_CLI_USER_DIR="$ABBR_CLI_TEST_DIR/user-snippets"
+ABBR_CLI_LOCAL_DIR="$ABBR_CLI_TEST_DIR/project/.zsh-snip"
+ABBR_CLI_PROJECT_DIR="$ABBR_CLI_TEST_DIR/project/subdir"
+mkdir -p "$ABBR_CLI_USER_DIR"
+mkdir -p "$ABBR_CLI_LOCAL_DIR"
+mkdir -p "$ABBR_CLI_PROJECT_DIR"
+
+# Save original values
+ORIG_ZSH_SNIP_DIR_ABBR="$ZSH_SNIP_DIR"
+ORIG_ZSH_SNIP_LOCAL_PATH_ABBR="${ZSH_SNIP_LOCAL_PATH:-}"
+ORIG_PWD_ABBR="$PWD"
+
+# Set up test environment
+ZSH_SNIP_DIR="$ABBR_CLI_USER_DIR"
+ZSH_SNIP_LOCAL_PATH=".zsh-snip"
+cd "$ABBR_CLI_PROJECT_DIR"
+
+# Helper to create test snippets with abbr
+_create_abbr_test_snippet() {
+  local dir="$1"
+  local name="$2"
+  local abbr_val="$3"
+  local cmd="$4"
+  local desc="${5:-Test snippet}"
+
+  cat > "$dir/$name" <<EOF
+# name: $name
+# description: $desc
+# abbr: $abbr_val
+# ---
+$cmd
+EOF
+}
+
+# Helper to create snippet without abbr
+_create_no_abbr_snippet() {
+  local dir="$1"
+  local name="$2"
+  local cmd="$3"
+
+  cat > "$dir/$name" <<EOF
+# name: $name
+# description: No abbr
+# ---
+$cmd
+EOF
+}
+
+# Create test snippets
+_create_abbr_test_snippet "$ABBR_CLI_USER_DIR" "git-status" "gs gst" "git status"
+_create_abbr_test_snippet "$ABBR_CLI_USER_DIR" "git-log" "gl glog" "git log --oneline"
+_create_no_abbr_snippet "$ABBR_CLI_USER_DIR" "no-abbr-user" "echo no abbr"
+_create_abbr_test_snippet "$ABBR_CLI_LOCAL_DIR" "docker-ps" "dps" "docker ps"
+_create_abbr_test_snippet "$ABBR_CLI_LOCAL_DIR" "git-status" "gss" "git status --short" "Local override"
+_create_no_abbr_snippet "$ABBR_CLI_LOCAL_DIR" "no-abbr-local" "echo local no abbr"
+
+# Test: list all snippets with abbrs (both user and local)
+output=$(zsh-snip abbr list --no-color 2>&1)
+assert_contains "$output" "docker-ps" "lists local snippet with abbr"
+assert_contains "$output" "git-status" "lists snippet with abbr (deduplicated)"
+assert_contains "$output" "git-log" "lists user snippet with abbr"
+# Should NOT contain snippets without abbr
+if [[ "$output" == *"no-abbr-user"* ]] || [[ "$output" == *"no-abbr-local"* ]]; then
+  TESTS_RUN=$((TESTS_RUN + 1))
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+  echo "  ✗ abbr list excludes snippets without abbr field"
+  echo "    output should not contain no-abbr snippets: $output"
+else
+  TESTS_RUN=$((TESTS_RUN + 1))
+  TESTS_PASSED=$((TESTS_PASSED + 1))
+  log "  ✓ abbr list excludes snippets without abbr field"
+fi
+
+# Test: list shows abbreviation keys
+assert_contains "$output" "dps" "shows abbr keys for docker-ps"
+assert_contains "$output" "gl" "shows abbr keys for git-log"
+
+# Test: list --user shows only user snippets with abbrs
+output=$(zsh-snip abbr list --user --no-color 2>&1)
+assert_contains "$output" "git-status" "lists user snippet with abbr"
+assert_contains "$output" "git-log" "lists user snippet with abbr"
+if [[ "$output" == *"docker-ps"* ]]; then
+  TESTS_RUN=$((TESTS_RUN + 1))
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+  echo "  ✗ abbr list --user excludes local snippets"
+  echo "    output should not contain docker-ps: $output"
+else
+  TESTS_RUN=$((TESTS_RUN + 1))
+  TESTS_PASSED=$((TESTS_PASSED + 1))
+  log "  ✓ abbr list --user excludes local snippets"
+fi
+
+# Test: list --local shows only local snippets with abbrs
+output=$(zsh-snip abbr list --local --no-color 2>&1)
+assert_contains "$output" "docker-ps" "lists local snippet with abbr"
+assert_contains "$output" "git-status" "lists local snippet with abbr"
+if [[ "$output" == *"git-log"* ]]; then
+  TESTS_RUN=$((TESTS_RUN + 1))
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+  echo "  ✗ abbr list --local excludes user snippets"
+  echo "    output should not contain git-log: $output"
+else
+  TESTS_RUN=$((TESTS_RUN + 1))
+  TESTS_PASSED=$((TESTS_PASSED + 1))
+  log "  ✓ abbr list --local excludes user snippets"
+fi
+
+# Test: local takes precedence in default list (shows gss, not gs gst)
+output=$(zsh-snip abbr list --no-color 2>&1)
+assert_contains "$output" "gss" "local abbr takes precedence"
+if [[ "$output" == *"gs gst"* ]]; then
+  TESTS_RUN=$((TESTS_RUN + 1))
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+  echo "  ✗ abbr list prefers local over user (deduplication)"
+  echo "    output should show gss not 'gs gst': $output"
+else
+  TESTS_RUN=$((TESTS_RUN + 1))
+  TESTS_PASSED=$((TESTS_PASSED + 1))
+  log "  ✓ abbr list prefers local over user (deduplication)"
+fi
+
+# Cleanup abbr list test environment
+cd "$ORIG_PWD_ABBR"
+ZSH_SNIP_DIR="$ORIG_ZSH_SNIP_DIR_ABBR"
+ZSH_SNIP_LOCAL_PATH="$ORIG_ZSH_SNIP_LOCAL_PATH_ABBR"
+rm -rf "$ABBR_CLI_TEST_DIR"
+
+
+# =============================================================================
+# Tests for zsh-snip abbr load
+# =============================================================================
+log ""
+log "Testing zsh-snip abbr load..."
+
+# Create test environment
+ABBR_LOAD_TEST_DIR=$(mktemp -d)
+ABBR_LOAD_USER_DIR="$ABBR_LOAD_TEST_DIR/user-snippets"
+ABBR_LOAD_LOCAL_DIR="$ABBR_LOAD_TEST_DIR/project/.zsh-snip"
+ABBR_LOAD_PROJECT_DIR="$ABBR_LOAD_TEST_DIR/project/subdir"
+mkdir -p "$ABBR_LOAD_USER_DIR"
+mkdir -p "$ABBR_LOAD_LOCAL_DIR"
+mkdir -p "$ABBR_LOAD_PROJECT_DIR"
+
+# Save original values
+ORIG_ZSH_SNIP_DIR_LOAD="$ZSH_SNIP_DIR"
+ORIG_ZSH_SNIP_LOCAL_PATH_LOAD="${ZSH_SNIP_LOCAL_PATH:-}"
+ORIG_PWD_LOAD="$PWD"
+
+# Set up test environment
+ZSH_SNIP_DIR="$ABBR_LOAD_USER_DIR"
+ZSH_SNIP_LOCAL_PATH=".zsh-snip"
+cd "$ABBR_LOAD_PROJECT_DIR"
+
+# Mock abbr command to capture calls
+typeset -ga MOCK_ABBR_CALLS
+MOCK_ABBR_CALLS=()
+
+abbr() {
+  # Capture the call for verification
+  MOCK_ABBR_CALLS+=("$*")
+}
+
+# Create test snippets with abbrs
+_create_abbr_test_snippet "$ABBR_LOAD_USER_DIR" "git-status" "gs gst" "git status"
+_create_abbr_test_snippet "$ABBR_LOAD_USER_DIR" "git-log" "gl" "git log --oneline"
+_create_no_abbr_snippet "$ABBR_LOAD_USER_DIR" "no-abbr" "echo no abbr"
+_create_abbr_test_snippet "$ABBR_LOAD_LOCAL_DIR" "docker-ps" "dps" "docker ps"
+_create_abbr_test_snippet "$ABBR_LOAD_LOCAL_DIR" "git-status" "gss" "git status --short"
+
+# Test: load all (user + local)
+MOCK_ABBR_CALLS=()
+zsh-snip abbr load 2>&1 >/dev/null
+# Should register: gs, gst, gl (user), dps, gss (local, overrides user git-status)
+# Check that abbr -S was called with correct expansions
+local found_dps=0 found_gss=0 found_gl=0
+for call in "${MOCK_ABBR_CALLS[@]}"; do
+  [[ "$call" == "-S dps="* ]] && found_dps=1
+  [[ "$call" == "-S gss="* ]] && found_gss=1
+  [[ "$call" == "-S gl="* ]] && found_gl=1
+done
+assert_eq 1 $found_dps "load registers local abbr dps"
+assert_eq 1 $found_gss "load registers local abbr gss (overrides user)"
+assert_eq 1 $found_gl "load registers user abbr gl"
+
+# Check git-status user abbrs (gs, gst) are NOT loaded (local overrides)
+local found_gs=0 found_gst=0
+for call in "${MOCK_ABBR_CALLS[@]}"; do
+  [[ "$call" == "-S gs="* ]] && found_gs=1
+  [[ "$call" == "-S gst="* ]] && found_gst=1
+done
+assert_eq 0 $found_gs "load skips user abbr when local overrides (gs)"
+assert_eq 0 $found_gst "load skips user abbr when local overrides (gst)"
+
+# Test: load --user only
+MOCK_ABBR_CALLS=()
+zsh-snip abbr load --user 2>&1 >/dev/null
+found_dps=0; found_gs=0; found_gl=0
+for call in "${MOCK_ABBR_CALLS[@]}"; do
+  [[ "$call" == "-S dps="* ]] && found_dps=1
+  [[ "$call" == "-S gs="* ]] && found_gs=1
+  [[ "$call" == "-S gl="* ]] && found_gl=1
+done
+assert_eq 0 $found_dps "load --user skips local abbrs"
+assert_eq 1 $found_gs "load --user includes user abbrs (gs)"
+assert_eq 1 $found_gl "load --user includes user abbrs (gl)"
+
+# Test: load --local only
+MOCK_ABBR_CALLS=()
+zsh-snip abbr load --local 2>&1 >/dev/null
+found_dps=0; found_gss=0; found_gl=0
+for call in "${MOCK_ABBR_CALLS[@]}"; do
+  [[ "$call" == "-S dps="* ]] && found_dps=1
+  [[ "$call" == "-S gss="* ]] && found_gss=1
+  [[ "$call" == "-S gl="* ]] && found_gl=1
+done
+assert_eq 1 $found_dps "load --local includes local abbrs (dps)"
+assert_eq 1 $found_gss "load --local includes local abbrs (gss)"
+assert_eq 0 $found_gl "load --local skips user abbrs"
+
+# Cleanup mock abbr function
+unfunction abbr 2>/dev/null || true
+
+# Cleanup load test environment
+cd "$ORIG_PWD_LOAD"
+ZSH_SNIP_DIR="$ORIG_ZSH_SNIP_DIR_LOAD"
+ZSH_SNIP_LOCAL_PATH="$ORIG_ZSH_SNIP_LOCAL_PATH_LOAD"
+rm -rf "$ABBR_LOAD_TEST_DIR"
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 log ""

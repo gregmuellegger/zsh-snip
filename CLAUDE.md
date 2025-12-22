@@ -36,6 +36,7 @@ Snippets have a header section ending with `# ---`, followed by the command cont
 # name: <filename>
 # description: <optional description>
 # args: <argument hints for ctrl-x prompt>
+# abbr: <space-separated abbreviation keys>
 # created: <ISO 8601 timestamp>
 # ---
 <command content>
@@ -58,6 +59,8 @@ Only `# name:` is required. Header parsing stops at `# ---`, so command content 
 The `name` field controls the filename - changing it renames the file on save.
 
 The `args` field is optional - when present, ctrl-x prompts for arguments using this as the hint (e.g., `<domain> [port]`). Without it, ctrl-x executes immediately.
+
+The `abbr` field is optional - when present and `ZSH_SNIP_ABBR=1` is set, registers abbreviations with zsh-abbr. Multiple keys can be space-separated (e.g., `abbr: gs gst`). Abbreviations are auto-reloaded on snippet save/edit/delete.
 
 Subfolders are supported, so a name of `<dir>/<subdir>/<filename>` should be supported (even if the dir/subdir does not exist yet)
 

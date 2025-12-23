@@ -144,10 +144,11 @@ You can then add arguments and press Enter.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ZSH_SNIP_DIR` | `~/.local/share/zsh-snip` | Where user snippets are stored (respects `$XDG_DATA_HOME`) |
-| `ZSH_SNIP_EDITOR` | `$EDITOR` or `vim` | Editor for snippet editing |
 | `ZSH_SNIP_LOCAL_PATH` | `.zsh-snip` | Directory name for project-local snippets (set to empty string to disable) |
 | `ZSH_SNIP_YANK_CMD` | auto-detected | Clipboard command for `Ctrl+Y` (set to empty string to disable) |
 | `ZSH_SNIP_ABBR` | `0` | Set to `1` to enable zsh-abbr integration (auto-load abbreviations) |
+
+The plugin uses `$EDITOR` for editing snippets (falls back to `vi` if unset).
 
 ## Storage
 

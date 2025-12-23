@@ -146,7 +146,7 @@ stty -ixon -ixoff 2>/dev/null || true
 # Test environment init
 export ZSH_SNIP_DIR="$ZSH_SNIP_DIR"
 export ZSH_SNIP_LOCAL_PATH=".zsh-snip"
-export ZSH_SNIP_EDITOR="true"  # Use true as editor - does nothing and exits 0
+export EDITOR="true"  # Use true as editor - does nothing and exits 0
 export TERM=xterm-256color
 PS1='READY> '
 

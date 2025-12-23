@@ -159,7 +159,7 @@ FZF
 
     # Set environment
     export PATH="$TEST_DIR/bin:$PATH"
-    export ZSH_SNIP_EDITOR="$TEST_DIR/bin/mock_editor"
+    export EDITOR="$TEST_DIR/bin/mock_editor"
 
     # Clear log files
     : > "$TEST_DIR/logs/editor.log"

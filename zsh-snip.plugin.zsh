@@ -3,7 +3,6 @@
 
 # Configuration
 ZSH_SNIP_DIR="${ZSH_SNIP_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/zsh-snip}"
-ZSH_SNIP_EDITOR="${ZSH_SNIP_EDITOR:-${EDITOR:-vim}}"
 ZSH_SNIP_LOCAL_PATH="${ZSH_SNIP_LOCAL_PATH:-.zsh-snip}"
 # ZSH_SNIP_YANK_CMD - auto-detected if unset, set empty to disable
 # ZSH_SNIP_DEBUG_TIMING - set to 1 to show timing diagnostics
@@ -235,7 +234,7 @@ _zsh_snip_get_name_line_number() {
 # Open file in editor with cursor at name value
 _zsh_snip_edit_at_name() {
   local filepath="$1"
-  local editor="${ZSH_SNIP_EDITOR:-${EDITOR:-vim}}"
+  local editor="${EDITOR:-vi}"
   local editor_name="${editor##*/}"
   local line_num=$(_zsh_snip_get_name_line_number "$filepath")
   line_num="${line_num:-1}"
@@ -689,7 +688,7 @@ _zsh_snip_search() {
     case "$key" in
       ctrl-e)
         # Edit the snippet file, then return to fzf
-        "$ZSH_SNIP_EDITOR" "$filepath"
+        "${EDITOR:-vi}" "$filepath"
         # Check if name was changed in editor
         local new_name=$(_zsh_snip_read_name "$filepath")
         if [[ -n "$new_name" && "$new_name" != "$selected" ]]; then
@@ -724,7 +723,7 @@ _zsh_snip_search() {
         local desc=$(_zsh_snip_read_description "$filepath")
         [[ "$dup_name" == */* ]] && mkdir -p "${dup_path%/*}"
         _zsh_snip_write "$dup_path" "$dup_name" "$desc" "$command"
-        "$ZSH_SNIP_EDITOR" "$dup_path"
+        "${EDITOR:-vi}" "$dup_path"
         # Check if name was changed in editor
         local new_name=$(_zsh_snip_read_name "$dup_path")
         if [[ -n "$new_name" && "$new_name" != "$dup_name" ]]; then

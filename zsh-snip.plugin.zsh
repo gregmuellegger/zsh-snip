@@ -9,17 +9,21 @@ ZSH_SNIP_LOCAL_PATH="${ZSH_SNIP_LOCAL_PATH:-.zsh-snip}"
 
 # Timing helper - outputs elapsed time in ms if debugging enabled
 # Usage: _zsh_snip_timing_start; ...; _zsh_snip_timing_end "label"
+# Uses zsh/datetime's $EPOCHREALTIME (fork-free and portable) rather than
+# `date +%s%N`, whose %N nanoseconds are unsupported by BSD/macOS date.
+zmodload zsh/datetime 2>/dev/null
+
 _zsh_snip_timing_start() {
   [[ -n "$ZSH_SNIP_DEBUG_TIMING" ]] || return 0
-  typeset -g _zsh_snip_timing_ns
-  _zsh_snip_timing_ns=$(($(date +%s%N)))
+  typeset -gF _zsh_snip_timing_start_s
+  _zsh_snip_timing_start_s=$EPOCHREALTIME
 }
 
 _zsh_snip_timing_end() {
   [[ -n "$ZSH_SNIP_DEBUG_TIMING" ]] || return 0
   local label="$1"
-  local end_ns=$(($(date +%s%N)))
-  local elapsed_ms=$(( (end_ns - _zsh_snip_timing_ns) / 1000000 ))
+  # Integer-typed so the float millisecond value truncates to whole ms.
+  local -i elapsed_ms=$(( (EPOCHREALTIME - _zsh_snip_timing_start_s) * 1000 ))
   echo "[timing] $label: ${elapsed_ms}ms" >&2
 }
 
@@ -791,24 +795,44 @@ _zsh_snip_search() {
     local fzf_list
     _zsh_snip_timing_start
     fzf_list=$(
-      {
-        # Each record is "scope<US>name<US>filepath"; ~ = user, ! = local.
-        local record rscope rrest name f prefix desc cmd_preview
-        for record in "${_zsh_snip_enum[@]}"; do
-          rscope="${record%%$US*}"
-          rrest="${record#*$US}"
-          name="${rrest%%$US*}"
-          f="${rrest#*$US}"
-          [[ "$rscope" == "user" ]] && prefix='~' || prefix='!'
-          _zsh_snip_read_header "$f" "$cmd_width"
-          desc="$reply_desc"
-          cmd_preview="$reply_preview"
-          if (( ${#desc} > desc_width )); then
-            desc="${desc[1,$((desc_width - 1))]}…"
-          fi
-          printf '%s %s%s%s%s%s%s%s\n' "$prefix" "$name" "$US" "$desc" "$US" "$cmd_preview" "$US" "$f"
-        done
-      } | column -t -s $'\x1f' -o $'\t'
+      # Build the aligned, tab-delimited list in pure zsh. This replaces
+      # `column -t -s $'\x1f' -o $'\t'`, whose -o flag is util-linux only and
+      # is missing from BSD/macOS column. The first three columns are
+      # right-padded to their widest value with ${(r:WIDTH:)}, joined by tab,
+      # and the trailing path column is left unpadded - byte-identical to the
+      # column output that fzf's --delimiter=$'\t'/--with-nth=1,2,3 expects.
+      local record rscope rrest name f prefix desc cmd_preview field1
+      local -a col_name col_desc col_preview col_path
+      local -i w_name=0 w_desc=0 w_preview=0
+      for record in "${_zsh_snip_enum[@]}"; do
+        rscope="${record%%$US*}"
+        rrest="${record#*$US}"
+        name="${rrest%%$US*}"
+        f="${rrest#*$US}"
+        [[ "$rscope" == "user" ]] && prefix='~' || prefix='!'
+        _zsh_snip_read_header "$f" "$cmd_width"
+        desc="$reply_desc"
+        cmd_preview="$reply_preview"
+        if (( ${#desc} > desc_width )); then
+          desc="${desc[1,$((desc_width - 1))]}…"
+        fi
+        field1="$prefix $name"
+        col_name+=("$field1")
+        col_desc+=("$desc")
+        col_preview+=("$cmd_preview")
+        col_path+=("$f")
+        (( ${#field1}      > w_name ))    && w_name=${#field1}
+        (( ${#desc}        > w_desc ))    && w_desc=${#desc}
+        (( ${#cmd_preview} > w_preview )) && w_preview=${#cmd_preview}
+      done
+      local -i i
+      for (( i = 1; i <= ${#col_name}; i++ )); do
+        printf '%s\t%s\t%s\t%s\n' \
+          "${(r:w_name:)col_name[i]}" \
+          "${(r:w_desc:)col_desc[i]}" \
+          "${(r:w_preview:)col_preview[i]}" \
+          "${col_path[i]}"
+      done
     )
     _zsh_snip_timing_end "fzf_list generation (${#_zsh_snip_enum[@]} snippets)"
 

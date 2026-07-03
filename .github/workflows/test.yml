@@ -6,11 +6,18 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      # zsh ships with macOS; the integration suite mocks fzf via PATH, so
+      # only the Linux leg needs packages (fzf/tmux drive the e2e suite there).
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y zsh fzf tmux
 
       - name: Run unit tests
@@ -19,5 +26,7 @@ jobs:
       - name: Run integration tests
         run: zsh tests/test_integration.zsh
 
+      # The e2e suite needs tmux + real fzf; run it on Linux only.
       - name: Run E2E tests
+        if: runner.os == 'Linux'
         run: zsh tests/test_e2e.zsh

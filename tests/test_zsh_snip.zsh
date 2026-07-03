@@ -1869,6 +1869,28 @@ rm -rf "$ABBR_TRACK_TEST_DIR"
 
 
 # =============================================================================
+# Tests for _zsh_snip_timing_start / _zsh_snip_timing_end
+# =============================================================================
+log ""
+log "Testing timing helpers..."
+
+# Disabled by default: no output, non-failing.
+(
+  unset ZSH_SNIP_DEBUG_TIMING
+  _zsh_snip_timing_start
+  _zsh_snip_timing_end "noop"
+) 2>&1 >/dev/null
+assert_eq "" "$( (unset ZSH_SNIP_DEBUG_TIMING; _zsh_snip_timing_start; _zsh_snip_timing_end 'noop') 2>&1 )" \
+  "timing helpers emit nothing when ZSH_SNIP_DEBUG_TIMING is unset"
+
+# Enabled: emits '[timing] <label>: <N>ms' on stderr with a numeric duration.
+timing_output="$( (ZSH_SNIP_DEBUG_TIMING=1; _zsh_snip_timing_start; _zsh_snip_timing_end 'my-label') 2>&1 )"
+assert_contains "$timing_output" "[timing] my-label: " \
+  "timing end emits the '[timing] <label>: ' prefix when enabled"
+[[ "$timing_output" == *": "<->"ms" ]]
+assert_eq 0 $? "timing end reports an integer millisecond duration"
+
+# =============================================================================
 # Summary
 # =============================================================================
 log ""

@@ -828,6 +828,64 @@ FZF
 }
 
 # =============================================================================
+# Test: fzf list format (tab-delimited, columns aligned)
+# =============================================================================
+# Characterizes the exact list string piped to fzf so the column-padding
+# implementation stays byte-compatible with fzf's --delimiter/--with-nth.
+test_search_fzf_list_is_tab_aligned() {
+    log ""
+    log "Testing: fzf list is tab-delimited and column-aligned..."
+    setup_test_env
+
+    # Deterministic width: 80 cols -> desc_width 20, cmd_width 30
+    export COLUMNS=80
+
+    # A short and a long name so name-column padding actually matters.
+    create_test_snippet "longnamehere" "a longer description" "echo long"
+    create_test_snippet "s" "short desc" "echo short"
+
+    # Empty fzf output = user cancels; we only care about the captured input.
+    export MOCK_FZF_OUTPUT=""
+
+    _zsh_snip_search
+
+    local logcontent="$(cat "$TEST_DIR/logs/fzf_input.log")"
+    local -a lines=("${(f)logcontent}")
+
+    # Locate the two rows (glob order sorts longnamehere before s).
+    local short_line="" long_line=""
+    local line field1
+    for line in "${lines[@]}"; do
+        field1="${line%%$'\t'*}"
+        [[ "$field1" == "~ s"* ]] && short_line="$line"
+        [[ "$field1" == "~ longnamehere"* ]] && long_line="$line"
+    done
+
+    # Each record must have exactly 4 tab-separated fields (3 tabs).
+    local short_tabs="${short_line//[^$'\t']/}"
+    assert_eq 3 ${#short_tabs} "record has 4 tab-separated fields"
+
+    # Name column is padded to the widest name (~ longnamehere = 14 chars).
+    local short_f1="${short_line%%$'\t'*}"
+    local long_f1="${long_line%%$'\t'*}"
+    assert_eq "~ s           " "$short_f1" "short name padded to name-column width"
+    assert_eq "~ longnamehere" "$long_f1" "widest name defines the column width"
+    assert_eq ${#long_f1} ${#short_f1} "name columns aligned to equal width"
+
+    # Description column padded to widest description (20 chars).
+    local short_rest="${short_line#*$'\t'}"
+    local short_f2="${short_rest%%$'\t'*}"
+    assert_eq "short desc          " "$short_f2" "description padded to desc-column width"
+
+    # Last field is the unpadded full path.
+    local short_f4="${short_line##*$'\t'}"
+    assert_eq "$ZSH_SNIP_DIR/s" "$short_f4" "last field is the full path, unpadded"
+
+    unset COLUMNS
+    teardown_test_env
+}
+
+# =============================================================================
 # Run all tests
 # =============================================================================
 log "╔════════════════════════════════════════╗"
@@ -856,6 +914,7 @@ test_empty_buffer_rejected
 test_snippet_with_args_header
 test_search_ctrl_y_yanks_to_clipboard
 test_search_ctrl_y_hidden_when_no_clipboard
+test_search_fzf_list_is_tab_aligned
 
 # =============================================================================
 # Summary

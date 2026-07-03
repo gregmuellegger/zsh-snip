@@ -546,6 +546,84 @@ rm -rf "$TEST_SNIP_DIR"
 
 
 # =============================================================================
+# Tests for _zsh_snip_apply_rename (A2 shared helper; folds in B7, B8)
+# =============================================================================
+log ""
+log "Testing _zsh_snip_apply_rename..."
+
+APPLY_DIR=$(mktemp -d)
+
+# --- Valid rename: file is moved and new path reported --------------------
+_zsh_snip_write "$APPLY_DIR/docker-1" "my-custom" "" "docker ps"
+_zsh_snip_apply_rename "$APPLY_DIR/docker-1" "docker-1" "$APPLY_DIR"
+assert_eq "$APPLY_DIR/my-custom" "$_zsh_snip_rename_path" \
+  "valid rename reports new path"
+assert_eq "" "$_zsh_snip_rename_msg" \
+  "valid rename has no error message"
+if [[ -f "$APPLY_DIR/my-custom" && ! -e "$APPLY_DIR/docker-1" ]]; then r=yes; else r=no; fi
+assert_eq "yes" "$r" \
+  "valid rename moves the file"
+
+# --- Unchanged name is a no-op --------------------------------------------
+_zsh_snip_write "$APPLY_DIR/keep-1" "keep-1" "" "echo keep"
+_zsh_snip_apply_rename "$APPLY_DIR/keep-1" "keep-1" "$APPLY_DIR"
+assert_eq "$APPLY_DIR/keep-1" "$_zsh_snip_rename_path" \
+  "unchanged name reports original path"
+assert_eq "" "$_zsh_snip_rename_msg" \
+  "unchanged name has no error message"
+if [[ -f "$APPLY_DIR/keep-1" ]]; then r=yes; else r=no; fi
+assert_eq "yes" "$r" \
+  "unchanged name leaves file in place"
+
+# --- Subdirectory name (git/add) is preserved, not mangled by slugify -----
+_zsh_snip_write "$APPLY_DIR/git-1" "git/add" "" "git add ."
+_zsh_snip_apply_rename "$APPLY_DIR/git-1" "git-1" "$APPLY_DIR"
+assert_eq "$APPLY_DIR/git/add" "$_zsh_snip_rename_path" \
+  "subdir name git/add is preserved"
+if [[ -f "$APPLY_DIR/git/add" && ! -e "$APPLY_DIR/git-1" ]]; then r=yes; else r=no; fi
+assert_eq "yes" "$r" \
+  "subdir rename creates parent dir and moves file"
+
+# --- B7: path-traversal name is rejected, file NOT moved outside the dir ---
+_zsh_snip_write "$APPLY_DIR/evil-1" "../../evil" "" "rm -rf /"
+_zsh_snip_apply_rename "$APPLY_DIR/evil-1" "evil-1" "$APPLY_DIR"
+assert_eq "$APPLY_DIR/evil-1" "$_zsh_snip_rename_path" \
+  "traversal rename keeps original path (does not escape dir)"
+assert_contains "$_zsh_snip_rename_msg" "invalid name" \
+  "traversal rename reports invalid-name error"
+if [[ -f "$APPLY_DIR/evil-1" ]]; then r=yes; else r=no; fi
+assert_eq "yes" "$r" \
+  "traversal rename keeps original file"
+
+# --- B7: leading-slash (absolute) name is rejected ------------------------
+_zsh_snip_write "$APPLY_DIR/abs-1" "/etc/passwd" "" "echo abs"
+_zsh_snip_apply_rename "$APPLY_DIR/abs-1" "abs-1" "$APPLY_DIR" || true
+assert_eq "$APPLY_DIR/abs-1" "$_zsh_snip_rename_path" \
+  "absolute-path rename keeps original path"
+assert_contains "$_zsh_snip_rename_msg" "invalid name" \
+  "absolute-path rename reports invalid-name error"
+if [[ -f "$APPLY_DIR/abs-1" ]]; then r=yes; else r=no; fi
+assert_eq "yes" "$r" \
+  "absolute-path rename keeps original file"
+
+# --- Collision: rename to an existing name is refused, original kept -------
+_zsh_snip_write "$APPLY_DIR/taken" "taken" "" "echo taken"
+_zsh_snip_write "$APPLY_DIR/src-1" "taken" "" "echo src"
+_zsh_snip_apply_rename "$APPLY_DIR/src-1" "src-1" "$APPLY_DIR" || true
+assert_eq "$APPLY_DIR/src-1" "$_zsh_snip_rename_path" \
+  "collision rename keeps original path"
+assert_contains "$_zsh_snip_rename_msg" "already exists" \
+  "collision rename reports already-exists error"
+if [[ -f "$APPLY_DIR/src-1" ]]; then r=yes; else r=no; fi
+assert_eq "yes" "$r" \
+  "collision rename keeps original file"
+assert_eq "echo taken" "$(_zsh_snip_read_command "$APPLY_DIR/taken")" \
+  "collision rename does not overwrite the existing target"
+
+rm -rf "$APPLY_DIR"
+
+
+# =============================================================================
 # Tests for _zsh_snip_wrap_anon_func
 # =============================================================================
 log ""

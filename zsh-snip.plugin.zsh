@@ -496,6 +496,75 @@ _zsh_snip_slugify() {
   echo "$input" | tr -cs 'a-zA-Z0-9_/-' '-' | sed 's/^-//;s/-$//'
 }
 
+# Apply a rename after the user may have edited a snippet's `# name:` header.
+# Reads the (possibly changed) name from the file, sanitizes it (slugify +
+# reject path-traversal / absolute paths - folds in B7), and moves the file
+# when the name changed and no collision exists.
+#
+# Runs in the caller's shell (not a subshell) so it reports via globals,
+# following the reply_* convention - this keeps it usable inside zle widgets
+# and unit-testable without a terminal.
+#
+# Args: filepath old_name dir
+# Sets globals:
+#   _zsh_snip_rename_path - resulting file path (unchanged on no-op / error)
+#   _zsh_snip_rename_msg  - error message, or empty on success / no-op (B8:
+#                           callers surface this via `zle -M`, never bare echo)
+# Always returns 0 (errors are signalled via _zsh_snip_rename_msg) so the call
+# is safe as a bare statement, including under `setopt err_exit`.
+_zsh_snip_apply_rename() {
+  setopt LOCAL_OPTIONS EXTENDED_GLOB
+  local filepath="$1"
+  local old_name="$2"
+  local dir="$3"
+
+  typeset -g _zsh_snip_rename_path="$filepath"
+  typeset -g _zsh_snip_rename_msg=""
+
+  local new_name
+  new_name=$(_zsh_snip_read_name "$filepath")
+
+  # Nothing to do if the name was not changed
+  [[ -z "$new_name" || "$new_name" == "$old_name" ]] && return 0
+
+  # B7: reject path traversal / absolute paths *before* slugify strips the
+  # dots. A name like ../../evil must never escape the snippet directory.
+  local part
+  for part in "${(@s:/:)new_name}"; do
+    if [[ "$part" == ".." ]]; then
+      _zsh_snip_rename_msg="zsh-snip: invalid name '$new_name', keeping as '$old_name'"
+      return 0
+    fi
+  done
+  if [[ "$new_name" == /* ]]; then
+    _zsh_snip_rename_msg="zsh-snip: invalid name '$new_name', keeping as '$old_name'"
+    return 0
+  fi
+
+  # Sanitize to a safe filename (preserves subdir slashes like git/add)
+  local slug
+  slug=$(_zsh_snip_slugify "$new_name")
+  if [[ -z "$slug" ]]; then
+    _zsh_snip_rename_msg="zsh-snip: invalid name '$new_name', keeping as '$old_name'"
+    return 0
+  fi
+
+  # Sanitizing may have collapsed the name back to the original
+  [[ "$slug" == "$old_name" ]] && return 0
+
+  local new_path="$dir/$slug"
+  if [[ -e "$new_path" ]]; then
+    _zsh_snip_rename_msg="zsh-snip: '$slug' already exists, keeping as '$old_name'"
+    return 0
+  fi
+
+  # Create parent directory if the name contains subdirs (e.g., docker/run-rm)
+  [[ "$slug" == */* ]] && mkdir -p "${new_path%/*}"
+  mv "$filepath" "$new_path"
+  _zsh_snip_rename_path="$new_path"
+  return 0
+}
+
 # Save current buffer as snippet (CTRL-X CTRL-S)
 _zsh_snip_save() {
   setopt LOCAL_OPTIONS EXTENDED_GLOB INTERACTIVE_COMMENTS
@@ -506,8 +575,6 @@ _zsh_snip_save() {
   local filepath
   local command_to_save
   local description
-  local new_name
-  local new_path
 
   # Abort if buffer is empty
   if [[ -z "${buffer// /}" ]]; then
@@ -552,23 +619,17 @@ _zsh_snip_save() {
   _zsh_snip_write "$filepath" "$default_name" "$description" "$command_to_save"
   _zsh_snip_edit_at_name "$filepath"
 
-  # Check if name was changed in editor
-  new_name=$(_zsh_snip_read_name "$filepath")
-  if [[ -n "$new_name" && "$new_name" != "$default_name" ]]; then
-    new_path="$ZSH_SNIP_DIR/$new_name"
-    if [[ -e "$new_path" ]]; then
-      echo "Error: '$new_name' already exists, keeping as '$default_name'"
-    else
-      # Create parent directory if name contains subdirs (e.g., docker/run-rm)
-      [[ "$new_name" == */* ]] && mkdir -p "${new_path%/*}"
-      mv "$filepath" "$new_path"
-      filepath="$new_path"
-    fi
-  fi
+  # Apply any rename the user made in the editor (sanitized, collision-checked)
+  _zsh_snip_apply_rename "$filepath" "$default_name" "$ZSH_SNIP_DIR"
+  filepath="$_zsh_snip_rename_path"
 
   _zsh_snip_abbr_reload_if_enabled
   zle reset-prompt
-  zle -M "Saved: $filepath"
+  if [[ -n "$_zsh_snip_rename_msg" ]]; then
+    zle -M "$_zsh_snip_rename_msg"
+  else
+    zle -M "Saved: $filepath"
+  fi
 }
 
 # Insert text at cursor position in BUFFER
@@ -727,17 +788,9 @@ _zsh_snip_search() {
       ctrl-e)
         # Edit the snippet file, then return to fzf
         "${EDITOR:-vi}" "$filepath"
-        # Check if name was changed in editor
-        local new_name=$(_zsh_snip_read_name "$filepath")
-        if [[ -n "$new_name" && "$new_name" != "$selected" ]]; then
-          local new_path="$snip_dir/$new_name"
-          if [[ -e "$new_path" ]]; then
-            echo "Error: '$new_name' already exists, keeping as '$selected'"
-          else
-            [[ "$new_name" == */* ]] && mkdir -p "${new_path%/*}"
-            mv "$filepath" "$new_path"
-          fi
-        fi
+        # Apply any rename the user made (sanitized, collision-checked)
+        _zsh_snip_apply_rename "$filepath" "$selected" "$snip_dir"
+        [[ -n "$_zsh_snip_rename_msg" ]] && zle -M "$_zsh_snip_rename_msg"
         _zsh_snip_abbr_reload_if_enabled
         continue
         ;;
@@ -769,18 +822,10 @@ _zsh_snip_search() {
         # optional header fields.
         _zsh_snip_duplicate_file "$filepath" "$dup_path" "$dup_name"
         "${EDITOR:-vi}" "$dup_path"
-        # Check if name was changed in editor
-        local new_name=$(_zsh_snip_read_name "$dup_path")
-        if [[ -n "$new_name" && "$new_name" != "$dup_name" ]]; then
-          local new_path="$snip_dir/$new_name"
-          if [[ -e "$new_path" ]]; then
-            echo "Error: '$new_name' already exists, keeping as '$dup_name'"
-          else
-            [[ "$new_name" == */* ]] && mkdir -p "${new_path%/*}"
-            mv "$dup_path" "$new_path"
-            dup_path="$new_path"
-          fi
-        fi
+        # Apply any rename the user made (sanitized, collision-checked)
+        _zsh_snip_apply_rename "$dup_path" "$dup_name" "$snip_dir"
+        dup_path="$_zsh_snip_rename_path"
+        [[ -n "$_zsh_snip_rename_msg" ]] && zle -M "$_zsh_snip_rename_msg"
         command=$(_zsh_snip_read_command "$dup_path")
         _zsh_snip_abbr_reload_if_enabled
         BUFFER="$command"
@@ -863,8 +908,6 @@ _zsh_snip_save_local() {
   local filepath
   local command_to_save
   local description
-  local new_name
-  local new_path
 
   # Determine local snippet directory
   local local_dir=$(_zsh_snip_find_local_dir)
@@ -911,22 +954,17 @@ _zsh_snip_save_local() {
   _zsh_snip_write "$filepath" "$default_name" "$description" "$command_to_save"
   _zsh_snip_edit_at_name "$filepath"
 
-  # Check if name was changed in editor
-  new_name=$(_zsh_snip_read_name "$filepath")
-  if [[ -n "$new_name" && "$new_name" != "$default_name" ]]; then
-    new_path="$local_dir/$new_name"
-    if [[ -e "$new_path" ]]; then
-      echo "Error: '$new_name' already exists, keeping as '$default_name'"
-    else
-      [[ "$new_name" == */* ]] && mkdir -p "${new_path%/*}"
-      mv "$filepath" "$new_path"
-      filepath="$new_path"
-    fi
-  fi
+  # Apply any rename the user made in the editor (sanitized, collision-checked)
+  _zsh_snip_apply_rename "$filepath" "$default_name" "$local_dir"
+  filepath="$_zsh_snip_rename_path"
 
   _zsh_snip_abbr_reload_if_enabled
   zle reset-prompt
-  zle -M "Saved (local): $filepath"
+  if [[ -n "$_zsh_snip_rename_msg" ]]; then
+    zle -M "$_zsh_snip_rename_msg"
+  else
+    zle -M "Saved (local): $filepath"
+  fi
 }
 
 # =============================================================================

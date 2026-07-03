@@ -335,6 +335,74 @@ SCRIPT
 }
 
 # =============================================================================
+# Test: Editor rename with path traversal is rejected (B7)
+# =============================================================================
+test_editor_rename_rejects_path_traversal() {
+    log ""
+    log "Testing: Editor rename rejects path-traversal name (B7)..."
+    setup_test_env
+
+    # Editor rewrites the name field to an escaping path
+    cat > "$TEST_DIR/traversal_editor.sh" <<'SCRIPT'
+filepath="$1"
+sed -i 's|^# name: docker-1$|# name: ../../evil|' "$filepath"
+SCRIPT
+    chmod +x "$TEST_DIR/traversal_editor.sh"
+    export MOCK_EDITOR_SCRIPT="$TEST_DIR/traversal_editor.sh"
+
+    BUFFER="docker ps"
+    CURSOR=${#BUFFER}
+
+    _zsh_snip_save
+
+    # File must stay put, not escape the snippet dir
+    assert_file_exists "$ZSH_SNIP_DIR/docker-1" "traversal name keeps original file"
+    assert_file_not_exists "$TEST_DIR/evil" "traversal name did not escape snippet dir"
+
+    # Error is surfaced via zle -M (B8), not a swallowed echo
+    local msg=$(get_last_message)
+    assert_contains "$msg" "invalid name" "traversal rename shows invalid-name message"
+
+    teardown_test_env
+}
+
+# =============================================================================
+# Test: Editor rename collision keeps original and warns (B8)
+# =============================================================================
+test_editor_rename_collision_keeps_original() {
+    log ""
+    log "Testing: Editor rename collision keeps original file (B8)..."
+    setup_test_env
+
+    # A snippet named "taken" already exists
+    create_test_snippet "taken" "Existing snippet" "echo existing"
+
+    # Editor renames the freshly saved docker-1 to the taken name
+    cat > "$TEST_DIR/collision_editor.sh" <<'SCRIPT'
+filepath="$1"
+sed -i 's|^# name: docker-1$|# name: taken|' "$filepath"
+SCRIPT
+    chmod +x "$TEST_DIR/collision_editor.sh"
+    export MOCK_EDITOR_SCRIPT="$TEST_DIR/collision_editor.sh"
+
+    BUFFER="docker ps"
+    CURSOR=${#BUFFER}
+
+    _zsh_snip_save
+
+    # Original snippet stays as docker-1; the existing "taken" is untouched
+    assert_file_exists "$ZSH_SNIP_DIR/docker-1" "collision keeps original file name"
+    assert_eq "echo existing" "$(_zsh_snip_read_command "$ZSH_SNIP_DIR/taken")" \
+        "collision does not overwrite existing target"
+
+    # Error surfaced via zle -M (B8)
+    local msg=$(get_last_message)
+    assert_contains "$msg" "already exists" "collision rename shows already-exists message"
+
+    teardown_test_env
+}
+
+# =============================================================================
 # Test: Search with Enter replaces buffer
 # =============================================================================
 test_search_enter_replaces_buffer() {
@@ -728,6 +796,8 @@ test_save_creates_snippet_and_opens_editor
 test_save_extracts_trailing_comment
 test_save_uses_name_from_comment
 test_editor_rename_moves_file
+test_editor_rename_rejects_path_traversal
+test_editor_rename_collision_keeps_original
 test_search_enter_replaces_buffer
 test_search_ctrl_i_inserts_at_cursor
 test_search_ctrl_e_opens_editor

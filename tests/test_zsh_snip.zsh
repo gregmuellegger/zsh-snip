@@ -112,7 +112,7 @@ log "Testing _zsh_snip_next_id..."
 TEST_SNIP_DIR=$(mktemp -d)
 ZSH_SNIP_DIR="$TEST_SNIP_DIR"
 
-assert_eq "1" "$(_zsh_snip_next_id 'git')" \
+assert_eq "1" "$(_zsh_snip_next_id "$TEST_SNIP_DIR" 'git')" \
   "returns 1 for new command with no existing snippets"
 
 # Create some test files
@@ -120,16 +120,16 @@ touch "$TEST_SNIP_DIR/git-1"
 touch "$TEST_SNIP_DIR/git-2"
 touch "$TEST_SNIP_DIR/git-5"
 
-assert_eq "6" "$(_zsh_snip_next_id 'git')" \
+assert_eq "6" "$(_zsh_snip_next_id "$TEST_SNIP_DIR" 'git')" \
   "returns max+1 for existing snippets"
 
-assert_eq "1" "$(_zsh_snip_next_id 'docker')" \
+assert_eq "1" "$(_zsh_snip_next_id "$TEST_SNIP_DIR" 'docker')" \
   "returns 1 for command with no existing snippets (other snippets exist)"
 
 # Test with non-numeric suffix (should be ignored)
 touch "$TEST_SNIP_DIR/git-foo"
 
-assert_eq "6" "$(_zsh_snip_next_id 'git')" \
+assert_eq "6" "$(_zsh_snip_next_id "$TEST_SNIP_DIR" 'git')" \
   "ignores non-numeric suffixes"
 
 # Cleanup temp directory
@@ -464,23 +464,83 @@ ZSH_SNIP_DIR="$TEST_SNIP_DIR"
 
 # Test basic duplication (docker-1 → docker-2)
 touch "$TEST_SNIP_DIR/docker-1"
-assert_eq "docker-2" "$(_zsh_snip_duplicate_name 'docker-1')" \
+assert_eq "docker-2" "$(_zsh_snip_duplicate_name "$TEST_SNIP_DIR" 'docker-1')" \
   "increments numeric suffix"
 
 # Test when next number already exists (docker-1 with docker-2 existing → docker-3)
 touch "$TEST_SNIP_DIR/docker-2"
-assert_eq "docker-3" "$(_zsh_snip_duplicate_name 'docker-1')" \
+assert_eq "docker-3" "$(_zsh_snip_duplicate_name "$TEST_SNIP_DIR" 'docker-1')" \
   "skips existing files to find next available"
 
 # Test name without numeric suffix (node-shell → node-shell-1)
-assert_eq "node-shell-1" "$(_zsh_snip_duplicate_name 'node-shell')" \
+assert_eq "node-shell-1" "$(_zsh_snip_duplicate_name "$TEST_SNIP_DIR" 'node-shell')" \
   "appends -1 to name without numeric suffix"
 
 # Test subdirectory (git/status-1 → git/status-2)
 mkdir -p "$TEST_SNIP_DIR/git"
 touch "$TEST_SNIP_DIR/git/status-1"
-assert_eq "git/status-2" "$(_zsh_snip_duplicate_name 'git/status-1')" \
+assert_eq "git/status-2" "$(_zsh_snip_duplicate_name "$TEST_SNIP_DIR" 'git/status-1')" \
   "handles subdirectory paths"
+
+rm -rf "$TEST_SNIP_DIR"
+
+
+# =============================================================================
+# Regression tests for local-scope data-loss bugs (B1, B2)
+# =============================================================================
+log ""
+log "Testing local-scope id/duplicate resolution..."
+
+TEST_USER_DIR=$(mktemp -d)
+TEST_LOCAL_DIR=$(mktemp -d)
+ZSH_SNIP_DIR="$TEST_USER_DIR"
+
+# B1: _zsh_snip_next_id must scan the directory it is given, not $ZSH_SNIP_DIR
+touch "$TEST_USER_DIR/docker-5"     # user snippet that must NOT be counted
+touch "$TEST_LOCAL_DIR/docker-1"
+touch "$TEST_LOCAL_DIR/docker-2"
+
+assert_eq "3" "$(_zsh_snip_next_id "$TEST_LOCAL_DIR" 'docker')" \
+  "next_id counts existing local snippets when saving local"
+
+rm -rf "$TEST_USER_DIR" "$TEST_LOCAL_DIR"
+
+# B2: _zsh_snip_duplicate_name must resolve against the given directory.
+# Local dir has docker-1 only; user dir has no docker-* - the buggy version
+# scanned the user dir and suggested the existing name docker-1.
+TEST_USER_DIR=$(mktemp -d)
+TEST_LOCAL_DIR=$(mktemp -d)
+ZSH_SNIP_DIR="$TEST_USER_DIR"
+touch "$TEST_LOCAL_DIR/docker-1"
+
+assert_eq "docker-2" "$(_zsh_snip_duplicate_name "$TEST_LOCAL_DIR" 'docker-1')" \
+  "duplicate local snippet does not suggest existing name"
+
+rm -rf "$TEST_USER_DIR" "$TEST_LOCAL_DIR"
+
+
+# =============================================================================
+# Regression test for overwrite protection (B2 defensive)
+# =============================================================================
+log ""
+log "Testing _zsh_snip_write overwrite protection..."
+
+TEST_SNIP_DIR=$(mktemp -d)
+ZSH_SNIP_DIR="$TEST_SNIP_DIR"
+
+_zsh_snip_write "$TEST_SNIP_DIR/keep-me" "keep-me" "" "original content"
+
+if _zsh_snip_write "$TEST_SNIP_DIR/keep-me" "keep-me" "" "overwritten content" 2>/dev/null; then
+  write_rc=0
+else
+  write_rc=1
+fi
+assert_eq "1" "$write_rc" \
+  "write refuses to overwrite existing snippet"
+
+read_cmd=$(_zsh_snip_read_command "$TEST_SNIP_DIR/keep-me")
+assert_eq "original content" "$read_cmd" \
+  "existing snippet content is preserved when overwrite is refused"
 
 rm -rf "$TEST_SNIP_DIR"
 

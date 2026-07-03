@@ -135,16 +135,18 @@ _zsh_snip_extract_command() {
   echo "snippet"
 }
 
-# Find the next available ID for a command prefix
+# Find the next available ID for a command prefix in the given directory
+# Args: dir cmd
 _zsh_snip_next_id() {
-  local cmd="$1"
+  local dir="$1"
+  local cmd="$2"
   local max_id=0
   local id
   local file
   local files
 
   # Use (N) glob qualifier to return empty array if no matches
-  files=("$ZSH_SNIP_DIR"/"$cmd"-*(N))
+  files=("$dir"/"$cmd"-*(N))
 
   for file in "${files[@]}"; do
     [[ -e "$file" ]] || continue
@@ -159,8 +161,10 @@ _zsh_snip_next_id() {
 }
 
 # Generate a duplicate name for a snippet (docker-1 → docker-2)
+# Args: search_dir name
 _zsh_snip_duplicate_name() {
-  local name="$1"
+  local search_dir="$1"
+  local name="$2"
   local base
   local dir=""
 
@@ -183,7 +187,7 @@ _zsh_snip_duplicate_name() {
   local file
   local files
 
-  files=("$ZSH_SNIP_DIR"/"$dir""$base"-*(N))
+  files=("$search_dir"/"$dir""$base"-*(N))
 
   for file in "${files[@]}"; do
     [[ -e "$file" ]] || continue
@@ -205,6 +209,13 @@ _zsh_snip_write() {
   local command="$4"
   local timestamp
 
+  # Refuse to overwrite an existing snippet - guards against ID-collision
+  # data loss (all callers write to freshly-generated, non-existing paths)
+  if [[ -e "$filepath" ]]; then
+    echo "zsh-snip: refusing to overwrite existing snippet '$filepath'" >&2
+    return 1
+  fi
+
   timestamp=$(date -Iseconds)
 
   # Create parent directory if path contains subdirs (e.g., git/add)
@@ -217,6 +228,33 @@ _zsh_snip_write() {
 # ---
 $command
 EOF
+}
+
+# Duplicate a snippet file, rewriting only the # name: header line
+# Copies the source verbatim so args:/abbr:/shebangs/extra comments are preserved.
+# Args: src dest new_name
+_zsh_snip_duplicate_file() {
+  local src="$1"
+  local dest="$2"
+  local new_name="$3"
+  local line
+  local in_header=1
+  local renamed=0
+
+  # Create parent directory if dest contains subdirs (e.g., git/add)
+  mkdir -p "${dest%/*}"
+
+  {
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if (( in_header && ! renamed )) && [[ "$line" == "# name: "* ]]; then
+        printf '# name: %s\n' "$new_name"
+        renamed=1
+        continue
+      fi
+      [[ "$line" == "# ---" ]] && in_header=0
+      printf '%s\n' "$line"
+    done < "$src"
+  } > "$dest"
 }
 
 # Read name from a snippet file (only searches header, before # ---)
@@ -495,7 +533,7 @@ _zsh_snip_save() {
     comment_name=$(_zsh_snip_slugify "$comment_name")
     # Check if name exists, add number if collision
     if [[ -e "$ZSH_SNIP_DIR/$comment_name" ]]; then
-      id=$(_zsh_snip_next_id "$comment_name")
+      id=$(_zsh_snip_next_id "$ZSH_SNIP_DIR" "$comment_name")
       default_name="$comment_name-$id"
     else
       default_name="$comment_name"
@@ -505,7 +543,7 @@ _zsh_snip_save() {
     # Slugify to handle edge cases (e.g., commands with special chars)
     cmd=$(_zsh_snip_slugify "$cmd")
     [[ -z "$cmd" ]] && cmd="snippet"
-    id=$(_zsh_snip_next_id "$cmd")
+    id=$(_zsh_snip_next_id "$ZSH_SNIP_DIR" "$cmd")
     default_name="$cmd-$id"
   fi
   filepath="$ZSH_SNIP_DIR/$default_name"
@@ -718,11 +756,18 @@ _zsh_snip_search() {
         ;;
       ctrl-n)
         # Duplicate snippet and open editor
-        local dup_name=$(_zsh_snip_duplicate_name "$selected")
+        # Resolve the next name against the snippet's own directory (local or user)
+        local dup_name=$(_zsh_snip_duplicate_name "$snip_dir" "$selected")
         local dup_path="$snip_dir/$dup_name"
-        local desc=$(_zsh_snip_read_description "$filepath")
+        if [[ -e "$dup_path" ]]; then
+          echo "Error: '$dup_name' already exists, skipping duplicate"
+          continue
+        fi
         [[ "$dup_name" == */* ]] && mkdir -p "${dup_path%/*}"
-        _zsh_snip_write "$dup_path" "$dup_name" "$desc" "$command"
+        # Copy the original file verbatim (preserves args/abbr/shebang/comments),
+        # rewriting only the # name: line - regenerating from parsed fields drops
+        # optional header fields.
+        _zsh_snip_duplicate_file "$filepath" "$dup_path" "$dup_name"
         "${EDITOR:-vi}" "$dup_path"
         # Check if name was changed in editor
         local new_name=$(_zsh_snip_read_name "$dup_path")
@@ -848,7 +893,7 @@ _zsh_snip_save_local() {
   if [[ -n "$comment_name" ]]; then
     comment_name=$(_zsh_snip_slugify "$comment_name")
     if [[ -e "$local_dir/$comment_name" ]]; then
-      id=$(_zsh_snip_next_id "$comment_name")
+      id=$(_zsh_snip_next_id "$local_dir" "$comment_name")
       default_name="$comment_name-$id"
     else
       default_name="$comment_name"
@@ -857,7 +902,7 @@ _zsh_snip_save_local() {
     cmd=$(_zsh_snip_extract_command "$buffer")
     cmd=$(_zsh_snip_slugify "$cmd")
     [[ -z "$cmd" ]] && cmd="snippet"
-    id=$(_zsh_snip_next_id "$cmd")
+    id=$(_zsh_snip_next_id "$local_dir" "$cmd")
     default_name="$cmd-$id"
   fi
   filepath="$local_dir/$default_name"

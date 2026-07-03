@@ -515,13 +515,54 @@ test_duplicate_snippet() {
     create_test_snippet "docker-1" "Original docker command" "docker run nginx"
 
     # Test the duplicate name function
-    local new_name=$(_zsh_snip_duplicate_name "docker-1")
+    local new_name=$(_zsh_snip_duplicate_name "$ZSH_SNIP_DIR" "docker-1")
     assert_eq "docker-2" "$new_name" "generates correct duplicate name"
 
     # Create docker-2 and test again
     create_test_snippet "docker-2" "Second docker" "docker run redis"
-    new_name=$(_zsh_snip_duplicate_name "docker-1")
+    new_name=$(_zsh_snip_duplicate_name "$ZSH_SNIP_DIR" "docker-1")
     assert_eq "docker-3" "$new_name" "skips existing files"
+
+    teardown_test_env
+}
+
+# =============================================================================
+# Test: CTRL-N duplication preserves args: and abbr: header fields (B3)
+# =============================================================================
+test_duplicate_preserves_args_and_abbr_headers() {
+    log ""
+    log "Testing: CTRL-N duplication preserves args/abbr headers..."
+    setup_test_env
+
+    # Create a snippet with args: and abbr: header fields plus an extra comment
+    cat > "$ZSH_SNIP_DIR/deploy-1" <<'EOF'
+#!/usr/bin/env zsh
+# name: deploy-1
+# description: Deploy to a host
+# args: <host> [port]
+# abbr: dep dpl
+# created: 2024-01-01T00:00:00+00:00
+# ---
+ssh "$1" "deploy --port ${2:-22}"
+EOF
+
+    # fzf returns ctrl-n on the snippet; the ctrl-n handler breaks the loop
+    export MOCK_FZF_OUTPUT="deploy\nctrl-n\n~ deploy-1\tDeploy to a host\tssh...\t$ZSH_SNIP_DIR/deploy-1"
+
+    _zsh_snip_search
+
+    # Duplicate should be deploy-2 and preserve all header fields
+    assert_file_exists "$ZSH_SNIP_DIR/deploy-2" "duplicate file created"
+
+    local dup_content=$(cat "$ZSH_SNIP_DIR/deploy-2")
+    assert_contains "$dup_content" "# name: deploy-2" "duplicate has updated name"
+    assert_contains "$dup_content" "# args: <host> [port]" "duplicate preserves args header"
+    assert_contains "$dup_content" "# abbr: dep dpl" "duplicate preserves abbr header"
+    assert_contains "$dup_content" "#!/usr/bin/env zsh" "duplicate preserves shebang"
+
+    # Original must be untouched
+    local orig_content=$(cat "$ZSH_SNIP_DIR/deploy-1")
+    assert_contains "$orig_content" "# name: deploy-1" "original name unchanged"
 
     teardown_test_env
 }
@@ -694,6 +735,7 @@ test_search_ctrl_d_deletes_snippet
 test_search_alt_x_wraps_function
 test_save_local_creates_in_project
 test_duplicate_snippet
+test_duplicate_preserves_args_and_abbr_headers
 test_subdirectory_snippets
 test_empty_buffer_rejected
 test_snippet_with_args_header

@@ -95,15 +95,23 @@ Tests covering complete workflows with mock fzf. Tests search, save, edit, delet
 
 Tests using tmux to simulate real terminal interaction. Tests actual keybindings (CTRL-X CTRL-S, CTRL-X CTRL-X) and real fzf behavior. Requires tmux and fzf installed.
 
+### Harness meta-tests (`tests/test_harness.zsh`)
+
+Tests for `tests/lib/harness.zsh` itself (quiet/verbose modes, exit codes). Runs fixture suites as subprocesses.
+
 ### Running tests
+
+Suites are quiet by default: only failures and the summary print. Pass `-v`/`--verbose` (or set `QUIET=0`) for all assertion output; an explicit `QUIET` env var wins over the flag.
+
 ```zsh
-# Run all
+# Run all (quiet: failures + summary only)
 zsh tests/test_zsh_snip.zsh
 zsh tests/test_integration.zsh
 zsh tests/test_e2e.zsh
+zsh tests/test_harness.zsh
 
-# Quiet mode (only failures)
-QUIET=1 zsh tests/test_zsh_snip.zsh
+# Verbose (all assertions; used in CI)
+zsh tests/test_zsh_snip.zsh -v
 
 # Filter specific test
 TEST_FILTER="save" zsh tests/test_e2e.zsh
@@ -169,6 +177,7 @@ Snippet enumeration is centralized in `_zsh_snip_enumerate <scope> <mode>` (fill
 - `tests/test_zsh_snip.zsh` - Unit tests
 - `tests/test_integration.zsh` - Integration tests (mock fzf)
 - `tests/test_e2e.zsh` - E2E tests (tmux)
+- `tests/test_harness.zsh` - Meta-tests for the shared harness (quiet/verbose modes, exit codes)
 - `README.md` - User documentation
 
 ## Common Pitfalls

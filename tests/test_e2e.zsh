@@ -10,9 +10,9 @@
 # - tmux
 # - fzf
 #
-# Run: zsh tests/test_e2e.zsh
+# Run (quiet by default, only failures + summary): zsh tests/test_e2e.zsh
 # Run specific test: TEST_FILTER="save" zsh tests/test_e2e.zsh
-# Quiet mode (only failures): QUIET=1 zsh tests/test_e2e.zsh
+# Verbose (all assertions): zsh tests/test_e2e.zsh -v
 #
 # Exit code is governed by the assertion counters (see summary at the bottom):
 # the suite exits non-zero iff at least one assertion failed. No `set -e`, so a

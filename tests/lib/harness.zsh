@@ -16,8 +16,17 @@ TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
 
-# Quiet mode - only show failures
-: ${QUIET:=0}
+# Quiet by default: only failures and the summary print. Invoking a suite with
+# -v/--verbose (or QUIET=0) shows all output; an explicit QUIET env var wins
+# over the flag. `$@` here is the sourcing suite's argv, since the suites
+# source this file without arguments.
+if [[ -z "${QUIET:-}" ]]; then
+  QUIET=1
+  for _harness_arg in "$@"; do
+    [[ "$_harness_arg" == "-v" || "$_harness_arg" == "--verbose" ]] && QUIET=0
+  done
+  unset _harness_arg
+fi
 
 # Log function that respects QUIET mode
 log() { [[ "$QUIET" != "1" ]] && echo "$@"; return 0; }

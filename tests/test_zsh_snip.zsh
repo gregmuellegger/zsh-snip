@@ -1,8 +1,8 @@
 #!/usr/bin/env zsh
 # Tests for zsh-snip
 #
-# Run: zsh tests/test_zsh_snip.zsh
-# Quiet mode (only failures): QUIET=1 zsh tests/test_zsh_snip.zsh
+# Run (quiet by default, only failures + summary): zsh tests/test_zsh_snip.zsh
+# Verbose (all assertions): zsh tests/test_zsh_snip.zsh -v
 #
 # Exit code is governed by the assertion counters: the suite exits non-zero if
 # and only if at least one assertion failed. There is no `set -e`, so a

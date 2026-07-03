@@ -20,13 +20,18 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y zsh fzf tmux
 
+      # -v: full assertion output — CI logs are read after the fact, so
+      # verbose beats the quiet default used for local/agent runs.
+      - name: Run harness meta-tests
+        run: zsh tests/test_harness.zsh -v
+
       - name: Run unit tests
-        run: zsh tests/test_zsh_snip.zsh
+        run: zsh tests/test_zsh_snip.zsh -v
 
       - name: Run integration tests
-        run: zsh tests/test_integration.zsh
+        run: zsh tests/test_integration.zsh -v
 
       # The e2e suite needs tmux + real fzf; run it on Linux only.
       - name: Run E2E tests
         if: runner.os == 'Linux'
-        run: zsh tests/test_e2e.zsh
+        run: zsh tests/test_e2e.zsh -v

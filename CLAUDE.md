@@ -36,7 +36,6 @@ Snippets have a header section ending with `# ---`, followed by the command cont
 # name: <filename>
 # description: <optional description>
 # args: <argument hints for ctrl-x prompt>
-# abbr: <space-separated abbreviation keys>
 # created: <ISO 8601 timestamp>
 # ---
 <command content>
@@ -61,8 +60,6 @@ When a snippet has no description, `_zsh_snip_write` omits the `# description:` 
 The `name` field controls the filename - changing it renames the file on save.
 
 The `args` field is optional - when present, ctrl-x prompts for arguments using this as the hint (e.g., `<domain> [port]`). Without it, ctrl-x executes immediately.
-
-The `abbr` field is optional - when present and `ZSH_SNIP_ABBR=1` is set, registers abbreviations with zsh-abbr. Multiple keys can be space-separated (e.g., `abbr: gs gst`). Abbreviations are auto-reloaded on snippet save/edit/delete.
 
 Subfolders are supported, so a name of `<dir>/<subdir>/<filename>` should be supported (even if the dir/subdir does not exist yet)
 
@@ -144,15 +141,13 @@ zsh-snip path <name>        # Output the snippet's file path
 zsh-snip expand <name>      # Output snippet content (no header)
 zsh-snip exec <name> [args] # Execute snippet with arguments
 zsh-snip yank <name>        # Copy snippet content to clipboard
-zsh-snip abbr list          # List snippets that declare abbr: keys
-zsh-snip abbr load          # (Re)register abbreviations with zsh-abbr
 ```
 
 Options:
 - `--user` / `--local` - Filter by scope (local takes precedence by default)
 - `--names-only` - (list) Output only names
 - `--full-path` - (list) Show absolute paths
-- `--no-color` - (list, abbr list) Disable colored output
+- `--no-color` - (list) Disable colored output
 
 Argument parsing uses `zparseopts -D -E` in each `_zsh_snip_cli_*` function. For `exec`, options are extracted from anywhere while the positional name and trailing args are forwarded to the snippet unchanged.
 
@@ -162,13 +157,10 @@ Implementation details:
 - `_zsh_snip_cli_expand()` - Outputs raw command content
 - `_zsh_snip_cli_exec()` - Wraps in anonymous function, adds to history
 - `_zsh_snip_cli_yank()` - Copies content to clipboard via detected command
-- `_zsh_snip_cli_abbr()` - Dispatches the `abbr list` / `abbr load` subcommands
-- `_zsh_snip_cli_abbr_list()` - Lists snippets that declare `abbr:` keys
-- `_zsh_snip_cli_abbr_load()` - Registers/unloads abbreviations with zsh-abbr (per-scope tracking)
 - `_zsh_snip_cli_resolve()` - Resolves name to filepath with scope handling
 - `_zsh_snip_get_yank_cmd()` - Auto-detects clipboard command (pbcopy/clip.exe/wl-copy/xclip/xsel)
 
-Snippet enumeration is centralized in `_zsh_snip_enumerate <scope> <mode>` (fills the `_zsh_snip_enum` array with `scope<US>name<US>filepath` records; `dedup`/`raw` modes). The header parser is `_zsh_snip_read_header`; the single-field readers (`_zsh_snip_read_name/description/args/abbr`) are thin wrappers over it.
+Snippet enumeration is centralized in `_zsh_snip_enumerate <scope> <mode>` (fills the `_zsh_snip_enum` array with `scope<US>name<US>filepath` records; `dedup`/`raw` modes). The header parser is `_zsh_snip_read_header`; the single-field readers (`_zsh_snip_read_name/description/args`) are thin wrappers over it.
 
 ## Files
 

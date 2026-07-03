@@ -567,20 +567,20 @@ test_duplicate_snippet() {
 }
 
 # =============================================================================
-# Test: CTRL-N duplication preserves args: and abbr: header fields (B3)
+# Test: CTRL-N duplication preserves args: header fields (B3)
 # =============================================================================
-test_duplicate_preserves_args_and_abbr_headers() {
+test_duplicate_preserves_args_headers() {
     log ""
-    log "Testing: CTRL-N duplication preserves args/abbr headers..."
+    log "Testing: CTRL-N duplication preserves args headers..."
     setup_test_env
 
-    # Create a snippet with args: and abbr: header fields plus an extra comment
+    # Create a snippet with an args: header field plus an extra comment
     cat > "$ZSH_SNIP_DIR/deploy-1" <<'EOF'
 #!/usr/bin/env zsh
 # name: deploy-1
 # description: Deploy to a host
 # args: <host> [port]
-# abbr: dep dpl
+# note: run this from the repo root
 # created: 2024-01-01T00:00:00+00:00
 # ---
 ssh "$1" "deploy --port ${2:-22}"
@@ -597,7 +597,7 @@ EOF
     local dup_content=$(cat "$ZSH_SNIP_DIR/deploy-2")
     assert_contains "$dup_content" "# name: deploy-2" "duplicate has updated name"
     assert_contains "$dup_content" "# args: <host> [port]" "duplicate preserves args header"
-    assert_contains "$dup_content" "# abbr: dep dpl" "duplicate preserves abbr header"
+    assert_contains "$dup_content" "# note: run this from the repo root" "duplicate preserves extra comment lines verbatim"
     assert_contains "$dup_content" "#!/usr/bin/env zsh" "duplicate preserves shebang"
 
     # Original must be untouched
@@ -837,7 +837,7 @@ test_search_alt_x_wraps_function
 test_save_local_creates_in_project
 test_save_local_reports_local_saved_message
 test_duplicate_snippet
-test_duplicate_preserves_args_and_abbr_headers
+test_duplicate_preserves_args_headers
 test_subdirectory_snippets
 test_empty_buffer_rejected
 test_snippet_with_args_header

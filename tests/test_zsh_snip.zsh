@@ -258,7 +258,7 @@ assert_eq "<domain> [port]" "$args" \
   "reads args from complex header"
 
 # =============================================================================
-# Tests for single-field header readers (name/description/args/abbr)
+# Tests for single-field header readers (name/description/args)
 # Covers B4 regression: pure-zsh reader must stop at the first match and at
 # the # --- separator, never running past a sensible bound.
 # =============================================================================
@@ -284,7 +284,6 @@ cat > "$HDR_TEST_DIR/well-formed" <<'EOF'
 # name: well-formed
 # description: A well formed snippet
 # args: <domain> [port]
-# abbr: wf wff
 # ---
 echo "$1"
 EOF
@@ -294,8 +293,6 @@ assert_eq "A well formed snippet" "$(_zsh_snip_read_description "$HDR_TEST_DIR/w
   "test_read_description_returns_value_for_well_formed_header"
 assert_eq "<domain> [port]" "$(_zsh_snip_read_args "$HDR_TEST_DIR/well-formed")" \
   "test_read_args_returns_value_for_well_formed_header"
-assert_eq "wf wff" "$(_zsh_snip_read_abbr "$HDR_TEST_DIR/well-formed")" \
-  "test_read_abbr_returns_value_for_well_formed_header"
 
 # Header lacking a field: reader returns empty
 cat > "$HDR_TEST_DIR/only-name" <<'EOF'
@@ -307,20 +304,16 @@ assert_eq "" "$(_zsh_snip_read_description "$HDR_TEST_DIR/only-name")" \
   "test_read_description_returns_empty_when_field_absent"
 assert_eq "" "$(_zsh_snip_read_args "$HDR_TEST_DIR/only-name")" \
   "test_read_args_returns_empty_when_field_absent"
-assert_eq "" "$(_zsh_snip_read_abbr "$HDR_TEST_DIR/only-name")" \
-  "test_read_abbr_returns_empty_when_field_absent"
 
 # Header-like line AFTER # --- (in command body) must NOT be picked up
 cat > "$HDR_TEST_DIR/field-in-body" <<'EOF'
 # name: field-in-body
 # description: real description
 # args: real args
-# abbr: realabbr
 # ---
 # name: fake-name
 # description: fake description
 # args: fake args
-# abbr: fakeabbr
 echo body
 EOF
 assert_eq "field-in-body" "$(_zsh_snip_read_name "$HDR_TEST_DIR/field-in-body")" \
@@ -329,14 +322,12 @@ assert_eq "real description" "$(_zsh_snip_read_description "$HDR_TEST_DIR/field-
   "test_read_description_ignores_description_line_in_body"
 assert_eq "real args" "$(_zsh_snip_read_args "$HDR_TEST_DIR/field-in-body")" \
   "test_read_args_ignores_args_line_in_body"
-assert_eq "realabbr" "$(_zsh_snip_read_abbr "$HDR_TEST_DIR/field-in-body")" \
-  "test_read_abbr_ignores_abbr_line_in_body"
 
 # Header parser must not leak unprefixed reply_* globals into the shell. Call
 # non-subshelled so any leaked global would land in the current scope.
-unset reply_name reply_desc reply_args reply_abbr reply_preview 2>/dev/null
+unset reply_name reply_desc reply_args reply_preview 2>/dev/null
 unset _zsh_snip_reply_name _zsh_snip_reply_desc _zsh_snip_reply_args \
-  _zsh_snip_reply_abbr _zsh_snip_reply_preview 2>/dev/null
+  _zsh_snip_reply_preview 2>/dev/null
 _zsh_snip_read_header "$HDR_TEST_DIR/well-formed"
 [[ -z ${reply_name+x} ]] && leak_check=absent || leak_check=present
 assert_eq "absent" "$leak_check" \
@@ -347,9 +338,6 @@ assert_eq "absent" "$leak_check" \
 [[ -z ${reply_args+x} ]] && leak_check=absent || leak_check=present
 assert_eq "absent" "$leak_check" \
   "test_read_header_does_not_leak_unprefixed_reply_args"
-[[ -z ${reply_abbr+x} ]] && leak_check=absent || leak_check=present
-assert_eq "absent" "$leak_check" \
-  "test_read_header_does_not_leak_unprefixed_reply_abbr"
 [[ -z ${reply_preview+x} ]] && leak_check=absent || leak_check=present
 assert_eq "absent" "$leak_check" \
   "test_read_header_does_not_leak_unprefixed_reply_preview"
@@ -358,15 +346,6 @@ assert_eq "well-formed" "$_zsh_snip_reply_name" \
   "test_read_header_sets_namespaced_reply_name"
 assert_eq "A well formed snippet" "$_zsh_snip_reply_desc" \
   "test_read_header_sets_namespaced_reply_desc"
-
-# _zsh_snip_read_header_full must not leak its unprefixed reply_command global.
-unset reply_command _zsh_snip_reply_command 2>/dev/null
-_zsh_snip_read_header_full "$HDR_TEST_DIR/well-formed"
-[[ -z ${reply_command+x} ]] && leak_check=absent || leak_check=present
-assert_eq "absent" "$leak_check" \
-  "test_read_header_full_does_not_leak_unprefixed_reply_command"
-assert_eq 'echo "$1"' "$_zsh_snip_reply_command" \
-  "test_read_header_full_sets_namespaced_reply_command"
 
 rm -rf "$HDR_TEST_DIR"
 
@@ -1569,473 +1548,6 @@ cd "$ORIG_PWD_YANK"
 ZSH_SNIP_DIR="$ORIG_ZSH_SNIP_DIR"
 ZSH_SNIP_LOCAL_PATH="$ORIG_ZSH_SNIP_LOCAL_PATH"
 rm -rf "$YANK_TEST_DIR"
-
-
-# =============================================================================
-# Tests for _zsh_snip_read_abbr
-# =============================================================================
-log ""
-log "Testing _zsh_snip_read_abbr..."
-
-ABBR_TEST_DIR=$(mktemp -d)
-
-# Test: snippet without abbr header returns empty
-cat > "$ABBR_TEST_DIR/no-abbr" <<'EOF'
-# name: no-abbr
-# description: No abbreviation
-# ---
-git status
-EOF
-abbr=$(_zsh_snip_read_abbr "$ABBR_TEST_DIR/no-abbr")
-assert_eq "" "$abbr" "returns empty when no abbr header"
-
-# Test: snippet with single abbr
-cat > "$ABBR_TEST_DIR/single-abbr" <<'EOF'
-# name: single-abbr
-# abbr: gs
-# description: Git status shortcut
-# ---
-git status
-EOF
-abbr=$(_zsh_snip_read_abbr "$ABBR_TEST_DIR/single-abbr")
-assert_eq "gs" "$abbr" "reads single abbr correctly"
-
-# Test: snippet with multiple abbrs (space-separated)
-cat > "$ABBR_TEST_DIR/multi-abbr" <<'EOF'
-# name: multi-abbr
-# abbr: gl glog gll
-# ---
-git log --oneline --decorate
-EOF
-abbr=$(_zsh_snip_read_abbr "$ABBR_TEST_DIR/multi-abbr")
-assert_eq "gl glog gll" "$abbr" "reads multiple abbrs correctly"
-
-# Test: abbr field with extra whitespace
-cat > "$ABBR_TEST_DIR/whitespace-abbr" <<'EOF'
-# name: whitespace-abbr
-# abbr:   gl   glog
-# ---
-git log
-EOF
-abbr=$(_zsh_snip_read_abbr "$ABBR_TEST_DIR/whitespace-abbr")
-assert_eq "  gl   glog" "$abbr" "reads abbr with whitespace (trailing whitespace trimmed)"
-
-# Test: abbr in complex header with shebang and comments
-cat > "$ABBR_TEST_DIR/complex-header" <<'EOF'
-#!/usr/bin/env zsh
-# Complex snippet with multiple header fields
-# name: complex-header
-# description: Complex example
-# abbr: gp gpush
-# args: <branch>
-# Remember to check remote first
-# ---
-git push origin "$1"
-EOF
-abbr=$(_zsh_snip_read_abbr "$ABBR_TEST_DIR/complex-header")
-assert_eq "gp gpush" "$abbr" "reads abbr from complex header"
-
-# Test: abbr in content (after # ---) should not be matched
-cat > "$ABBR_TEST_DIR/abbr-in-content" <<'EOF'
-# name: abbr-in-content
-# abbr: realabbr
-# ---
-# This script demonstrates abbr usage
-# abbr: fakeabbr
-echo "not an abbr"
-EOF
-abbr=$(_zsh_snip_read_abbr "$ABBR_TEST_DIR/abbr-in-content")
-assert_eq "realabbr" "$abbr" "only reads abbr from header, not content"
-
-rm -rf "$ABBR_TEST_DIR"
-
-
-# =============================================================================
-# Tests for zsh-snip abbr list
-# =============================================================================
-log ""
-log "Testing zsh-snip abbr list..."
-
-# Create test environment
-ABBR_CLI_TEST_DIR=$(mktemp -d)
-ABBR_CLI_USER_DIR="$ABBR_CLI_TEST_DIR/user-snippets"
-ABBR_CLI_LOCAL_DIR="$ABBR_CLI_TEST_DIR/project/.zsh-snip"
-ABBR_CLI_PROJECT_DIR="$ABBR_CLI_TEST_DIR/project/subdir"
-mkdir -p "$ABBR_CLI_USER_DIR"
-mkdir -p "$ABBR_CLI_LOCAL_DIR"
-mkdir -p "$ABBR_CLI_PROJECT_DIR"
-
-# Save original values
-ORIG_ZSH_SNIP_DIR_ABBR="$ZSH_SNIP_DIR"
-ORIG_ZSH_SNIP_LOCAL_PATH_ABBR="${ZSH_SNIP_LOCAL_PATH:-}"
-ORIG_PWD_ABBR="$PWD"
-
-# Set up test environment
-ZSH_SNIP_DIR="$ABBR_CLI_USER_DIR"
-ZSH_SNIP_LOCAL_PATH=".zsh-snip"
-cd "$ABBR_CLI_PROJECT_DIR"
-
-# Helper to create test snippets with abbr
-_create_abbr_test_snippet() {
-  local dir="$1"
-  local name="$2"
-  local abbr_val="$3"
-  local cmd="$4"
-  local desc="${5:-Test snippet}"
-
-  cat > "$dir/$name" <<EOF
-# name: $name
-# description: $desc
-# abbr: $abbr_val
-# ---
-$cmd
-EOF
-}
-
-# Helper to create snippet without abbr
-_create_no_abbr_snippet() {
-  local dir="$1"
-  local name="$2"
-  local cmd="$3"
-
-  cat > "$dir/$name" <<EOF
-# name: $name
-# description: No abbr
-# ---
-$cmd
-EOF
-}
-
-# Create test snippets
-_create_abbr_test_snippet "$ABBR_CLI_USER_DIR" "git-status" "gs gst" "git status"
-_create_abbr_test_snippet "$ABBR_CLI_USER_DIR" "git-log" "gl glog" "git log --oneline"
-_create_no_abbr_snippet "$ABBR_CLI_USER_DIR" "no-abbr-user" "echo no abbr"
-_create_abbr_test_snippet "$ABBR_CLI_LOCAL_DIR" "docker-ps" "dps" "docker ps"
-_create_abbr_test_snippet "$ABBR_CLI_LOCAL_DIR" "git-status" "gss" "git status --short" "Local override"
-_create_no_abbr_snippet "$ABBR_CLI_LOCAL_DIR" "no-abbr-local" "echo local no abbr"
-
-# Test: list all snippets with abbrs (both user and local)
-output=$(zsh-snip abbr list --no-color 2>&1)
-assert_contains "$output" "docker-ps" "lists local snippet with abbr"
-assert_contains "$output" "git-status" "lists snippet with abbr (deduplicated)"
-assert_contains "$output" "git-log" "lists user snippet with abbr"
-# Should NOT contain snippets without abbr
-if [[ "$output" == *"no-abbr-user"* ]] || [[ "$output" == *"no-abbr-local"* ]]; then
-  TESTS_RUN=$((TESTS_RUN + 1))
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-  echo "  ✗ abbr list excludes snippets without abbr field"
-  echo "    output should not contain no-abbr snippets: $output"
-else
-  TESTS_RUN=$((TESTS_RUN + 1))
-  TESTS_PASSED=$((TESTS_PASSED + 1))
-  log "  ✓ abbr list excludes snippets without abbr field"
-fi
-
-# Test: list shows abbreviation keys
-assert_contains "$output" "dps" "shows abbr keys for docker-ps"
-assert_contains "$output" "gl" "shows abbr keys for git-log"
-
-# Test: list --user shows only user snippets with abbrs
-output=$(zsh-snip abbr list --user --no-color 2>&1)
-assert_contains "$output" "git-status" "lists user snippet with abbr"
-assert_contains "$output" "git-log" "lists user snippet with abbr"
-if [[ "$output" == *"docker-ps"* ]]; then
-  TESTS_RUN=$((TESTS_RUN + 1))
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-  echo "  ✗ abbr list --user excludes local snippets"
-  echo "    output should not contain docker-ps: $output"
-else
-  TESTS_RUN=$((TESTS_RUN + 1))
-  TESTS_PASSED=$((TESTS_PASSED + 1))
-  log "  ✓ abbr list --user excludes local snippets"
-fi
-
-# Test: list --local shows only local snippets with abbrs
-output=$(zsh-snip abbr list --local --no-color 2>&1)
-assert_contains "$output" "docker-ps" "lists local snippet with abbr"
-assert_contains "$output" "git-status" "lists local snippet with abbr"
-if [[ "$output" == *"git-log"* ]]; then
-  TESTS_RUN=$((TESTS_RUN + 1))
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-  echo "  ✗ abbr list --local excludes user snippets"
-  echo "    output should not contain git-log: $output"
-else
-  TESTS_RUN=$((TESTS_RUN + 1))
-  TESTS_PASSED=$((TESTS_PASSED + 1))
-  log "  ✓ abbr list --local excludes user snippets"
-fi
-
-# Test: local takes precedence in default list (shows gss, not gs gst)
-output=$(zsh-snip abbr list --no-color 2>&1)
-assert_contains "$output" "gss" "local abbr takes precedence"
-if [[ "$output" == *"gs gst"* ]]; then
-  TESTS_RUN=$((TESTS_RUN + 1))
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-  echo "  ✗ abbr list prefers local over user (deduplication)"
-  echo "    output should show gss not 'gs gst': $output"
-else
-  TESTS_RUN=$((TESTS_RUN + 1))
-  TESTS_PASSED=$((TESTS_PASSED + 1))
-  log "  ✓ abbr list prefers local over user (deduplication)"
-fi
-
-# Characterization: abbr list option-parsing contract
-# unknown option is rejected
-output=$(zsh-snip abbr list --bogus 2>&1) && result=0 || result=$?
-assert_eq 1 $result "test_abbr_list_rejects_unknown_option_exit_1"
-assert_contains "$output" "unknown option" "test_abbr_list_rejects_unknown_option_message"
-
-# positional argument is rejected (abbr list takes no positionals)
-output=$(zsh-snip abbr list git-status 2>&1) && result=0 || result=$?
-assert_eq 1 $result "test_abbr_list_rejects_positional_argument_exit_1"
-assert_contains "$output" "unexpected argument" "test_abbr_list_rejects_positional_argument_message"
-
-# Cleanup abbr list test environment
-cd "$ORIG_PWD_ABBR"
-ZSH_SNIP_DIR="$ORIG_ZSH_SNIP_DIR_ABBR"
-ZSH_SNIP_LOCAL_PATH="$ORIG_ZSH_SNIP_LOCAL_PATH_ABBR"
-rm -rf "$ABBR_CLI_TEST_DIR"
-
-
-# =============================================================================
-# Tests for zsh-snip abbr load
-# =============================================================================
-log ""
-log "Testing zsh-snip abbr load..."
-
-# Create test environment
-ABBR_LOAD_TEST_DIR=$(mktemp -d)
-ABBR_LOAD_USER_DIR="$ABBR_LOAD_TEST_DIR/user-snippets"
-ABBR_LOAD_LOCAL_DIR="$ABBR_LOAD_TEST_DIR/project/.zsh-snip"
-ABBR_LOAD_PROJECT_DIR="$ABBR_LOAD_TEST_DIR/project/subdir"
-mkdir -p "$ABBR_LOAD_USER_DIR"
-mkdir -p "$ABBR_LOAD_LOCAL_DIR"
-mkdir -p "$ABBR_LOAD_PROJECT_DIR"
-
-# Save original values
-ORIG_ZSH_SNIP_DIR_LOAD="$ZSH_SNIP_DIR"
-ORIG_ZSH_SNIP_LOCAL_PATH_LOAD="${ZSH_SNIP_LOCAL_PATH:-}"
-ORIG_PWD_LOAD="$PWD"
-
-# Set up test environment
-ZSH_SNIP_DIR="$ABBR_LOAD_USER_DIR"
-ZSH_SNIP_LOCAL_PATH=".zsh-snip"
-cd "$ABBR_LOAD_PROJECT_DIR"
-
-# Mock abbr command to capture calls
-typeset -ga MOCK_ABBR_CALLS
-MOCK_ABBR_CALLS=()
-
-abbr() {
-  # Capture the call for verification
-  MOCK_ABBR_CALLS+=("$*")
-}
-
-# Create test snippets with abbrs
-_create_abbr_test_snippet "$ABBR_LOAD_USER_DIR" "git-status" "gs gst" "git status"
-_create_abbr_test_snippet "$ABBR_LOAD_USER_DIR" "git-log" "gl" "git log --oneline"
-_create_no_abbr_snippet "$ABBR_LOAD_USER_DIR" "no-abbr" "echo no abbr"
-_create_abbr_test_snippet "$ABBR_LOAD_LOCAL_DIR" "docker-ps" "dps" "docker ps"
-_create_abbr_test_snippet "$ABBR_LOAD_LOCAL_DIR" "git-status" "gss" "git status --short"
-
-# Test: load all (user + local)
-MOCK_ABBR_CALLS=()
-zsh-snip abbr load 2>&1 >/dev/null
-# Should register: gs, gst, gl (user), dps, gss (local, overrides user git-status)
-# Check that abbr -S was called with correct expansions
-local found_dps=0 found_gss=0 found_gl=0
-for call in "${MOCK_ABBR_CALLS[@]}"; do
-  [[ "$call" == "-S dps="* ]] && found_dps=1
-  [[ "$call" == "-S gss="* ]] && found_gss=1
-  [[ "$call" == "-S gl="* ]] && found_gl=1
-done
-assert_eq 1 $found_dps "load registers local abbr dps"
-assert_eq 1 $found_gss "load registers local abbr gss (overrides user)"
-assert_eq 1 $found_gl "load registers user abbr gl"
-
-# Check git-status user abbrs (gs, gst) are NOT loaded (local overrides)
-local found_gs=0 found_gst=0
-for call in "${MOCK_ABBR_CALLS[@]}"; do
-  [[ "$call" == "-S gs="* ]] && found_gs=1
-  [[ "$call" == "-S gst="* ]] && found_gst=1
-done
-assert_eq 0 $found_gs "load skips user abbr when local overrides (gs)"
-assert_eq 0 $found_gst "load skips user abbr when local overrides (gst)"
-
-# Test: load --user only
-MOCK_ABBR_CALLS=()
-zsh-snip abbr load --user 2>&1 >/dev/null
-found_dps=0; found_gs=0; found_gl=0
-for call in "${MOCK_ABBR_CALLS[@]}"; do
-  [[ "$call" == "-S dps="* ]] && found_dps=1
-  [[ "$call" == "-S gs="* ]] && found_gs=1
-  [[ "$call" == "-S gl="* ]] && found_gl=1
-done
-assert_eq 0 $found_dps "load --user skips local abbrs"
-assert_eq 1 $found_gs "load --user includes user abbrs (gs)"
-assert_eq 1 $found_gl "load --user includes user abbrs (gl)"
-
-# Test: load --local only
-MOCK_ABBR_CALLS=()
-zsh-snip abbr load --local 2>&1 >/dev/null
-found_dps=0; found_gss=0; found_gl=0
-for call in "${MOCK_ABBR_CALLS[@]}"; do
-  [[ "$call" == "-S dps="* ]] && found_dps=1
-  [[ "$call" == "-S gss="* ]] && found_gss=1
-  [[ "$call" == "-S gl="* ]] && found_gl=1
-done
-assert_eq 1 $found_dps "load --local includes local abbrs (dps)"
-assert_eq 1 $found_gss "load --local includes local abbrs (gss)"
-assert_eq 0 $found_gl "load --local skips user abbrs"
-
-# Characterization: abbr load option-parsing contract
-# unknown option is rejected
-output=$(zsh-snip abbr load --bogus 2>&1) && result=0 || result=$?
-assert_eq 1 $result "test_abbr_load_rejects_unknown_option_exit_1"
-assert_contains "$output" "unknown option" "test_abbr_load_rejects_unknown_option_message"
-
-# positional argument is rejected (abbr load takes no positionals)
-output=$(zsh-snip abbr load extra 2>&1) && result=0 || result=$?
-assert_eq 1 $result "test_abbr_load_rejects_positional_argument_exit_1"
-assert_contains "$output" "unexpected argument" "test_abbr_load_rejects_positional_argument_message"
-
-# Cleanup mock abbr function
-unfunction abbr 2>/dev/null || true
-
-# Cleanup load test environment
-cd "$ORIG_PWD_LOAD"
-ZSH_SNIP_DIR="$ORIG_ZSH_SNIP_DIR_LOAD"
-ZSH_SNIP_LOCAL_PATH="$ORIG_ZSH_SNIP_LOCAL_PATH_LOAD"
-rm -rf "$ABBR_LOAD_TEST_DIR"
-
-
-# =============================================================================
-# Tests for abbr reload/unload tracking (stale keys, leak prevention)
-# =============================================================================
-log ""
-log "Testing abbr reload/unload tracking..."
-
-# Create test environment
-ABBR_TRACK_TEST_DIR=$(mktemp -d)
-ABBR_TRACK_USER_DIR="$ABBR_TRACK_TEST_DIR/user-snippets"
-ABBR_TRACK_LOCAL_DIR="$ABBR_TRACK_TEST_DIR/project/.zsh-snip"
-ABBR_TRACK_PROJECT_DIR="$ABBR_TRACK_TEST_DIR/project/subdir"
-ABBR_TRACK_AWAY_DIR="$ABBR_TRACK_TEST_DIR/away"
-mkdir -p "$ABBR_TRACK_USER_DIR"
-mkdir -p "$ABBR_TRACK_LOCAL_DIR"
-mkdir -p "$ABBR_TRACK_PROJECT_DIR"
-mkdir -p "$ABBR_TRACK_AWAY_DIR"
-
-# Save original values
-ORIG_ZSH_SNIP_DIR_TRACK="$ZSH_SNIP_DIR"
-ORIG_ZSH_SNIP_LOCAL_PATH_TRACK="${ZSH_SNIP_LOCAL_PATH:-}"
-ORIG_PWD_TRACK="$PWD"
-
-# Set up test environment
-ZSH_SNIP_DIR="$ABBR_TRACK_USER_DIR"
-ZSH_SNIP_LOCAL_PATH=".zsh-snip"
-
-# Mock abbr command to capture add and erase calls
-typeset -ga MOCK_ABBR_CALLS
-MOCK_ABBR_CALLS=()
-abbr() {
-  MOCK_ABBR_CALLS+=("$*")
-}
-
-# Test: reloading after a snippet's abbr key is removed ERASES the stale key
-cd "$ABBR_TRACK_PROJECT_DIR"
-_ZSH_SNIP_USER_ABBRS=()
-_ZSH_SNIP_LOCAL_ABBRS=()
-_create_abbr_test_snippet "$ABBR_TRACK_USER_DIR" "mysnip" "foo" "echo foo"
-MOCK_ABBR_CALLS=()
-_zsh_snip_cli_abbr_load --user 2>&1 >/dev/null
-# Now remove the abbr key: replace foo with bar
-_create_abbr_test_snippet "$ABBR_TRACK_USER_DIR" "mysnip" "bar" "echo foo"
-MOCK_ABBR_CALLS=()
-_zsh_snip_cli_abbr_load --user 2>&1 >/dev/null
-found_erase_foo=0; found_add_bar=0
-for call in "${MOCK_ABBR_CALLS[@]}"; do
-  [[ "$call" == "-S -e foo" ]] && found_erase_foo=1
-  [[ "$call" == "-S bar="* ]] && found_add_bar=1
-done
-assert_eq 1 $found_erase_foo "test_reload_erases_stale_key_when_removed_from_abbr_field"
-assert_eq 1 $found_add_bar "test_reload_registers_new_key_after_abbr_field_change"
-rm -f "$ABBR_TRACK_USER_DIR/mysnip"
-
-# Test: reloading after deleting a snippet ERASES its abbr key
-_ZSH_SNIP_USER_ABBRS=()
-_ZSH_SNIP_LOCAL_ABBRS=()
-_create_abbr_test_snippet "$ABBR_TRACK_USER_DIR" "delme" "zap" "echo zap"
-MOCK_ABBR_CALLS=()
-_zsh_snip_cli_abbr_load --user 2>&1 >/dev/null
-rm -f "$ABBR_TRACK_USER_DIR/delme"
-MOCK_ABBR_CALLS=()
-_zsh_snip_cli_abbr_load --user 2>&1 >/dev/null
-found_erase_zap=0; found_add_zap=0
-for call in "${MOCK_ABBR_CALLS[@]}"; do
-  [[ "$call" == "-S -e zap" ]] && found_erase_zap=1
-  [[ "$call" == "-S zap="* ]] && found_add_zap=1
-done
-assert_eq 1 $found_erase_zap "test_reload_erases_abbr_key_of_deleted_snippet"
-assert_eq 0 $found_add_zap "test_reload_does_not_readd_deleted_snippet_abbr"
-
-# Test: a local abbr registered via the reload path IS tracked in the local array
-_ZSH_SNIP_USER_ABBRS=()
-_ZSH_SNIP_LOCAL_ABBRS=()
-_create_abbr_test_snippet "$ABBR_TRACK_LOCAL_DIR" "loc-snip" "loc" "echo loc"
-MOCK_ABBR_CALLS=()
-_zsh_snip_cli_abbr_load 2>&1 >/dev/null
-assert_eq "loc" "${_ZSH_SNIP_LOCAL_ABBRS[(r)loc]}" \
-  "test_local_abbr_via_reload_path_is_tracked_in_local_array"
-
-# Test: user-scope and local-scope keys are tracked separately
-_ZSH_SNIP_USER_ABBRS=()
-_ZSH_SNIP_LOCAL_ABBRS=()
-_create_abbr_test_snippet "$ABBR_TRACK_USER_DIR" "user-snip" "uonly" "echo uonly"
-_create_abbr_test_snippet "$ABBR_TRACK_LOCAL_DIR" "local-snip" "lonly" "echo lonly"
-MOCK_ABBR_CALLS=()
-_zsh_snip_cli_abbr_load 2>&1 >/dev/null
-assert_eq "uonly" "${_ZSH_SNIP_USER_ABBRS[(r)uonly]}" \
-  "test_user_key_tracked_in_user_array"
-assert_eq "" "${_ZSH_SNIP_USER_ABBRS[(r)lonly]}" \
-  "test_local_key_not_tracked_in_user_array"
-assert_eq "lonly" "${_ZSH_SNIP_LOCAL_ABBRS[(r)lonly]}" \
-  "test_local_key_tracked_in_local_array"
-assert_eq "" "${_ZSH_SNIP_LOCAL_ABBRS[(r)uonly]}" \
-  "test_user_key_not_tracked_in_local_array"
-
-# Test: chpwd away from a project erases the project's local abbr keys (no leak)
-_ZSH_SNIP_USER_ABBRS=()
-_ZSH_SNIP_LOCAL_ABBRS=()
-_ZSH_SNIP_CURRENT_PROJECT=""
-rm -f "$ABBR_TRACK_LOCAL_DIR"/*(N)
-_create_abbr_test_snippet "$ABBR_TRACK_LOCAL_DIR" "leak-snip" "leak" "echo leak"
-cd "$ABBR_TRACK_PROJECT_DIR"
-# Register the local abbr via the reload path (bug: previously untracked)
-_zsh_snip_cli_abbr_load 2>&1 >/dev/null
-# Leaving the project should erase the tracked local abbr key
-cd "$ABBR_TRACK_AWAY_DIR"
-MOCK_ABBR_CALLS=()
-_zsh_snip_abbr_load_local 2>&1 >/dev/null
-found_erase_leak=0
-for call in "${MOCK_ABBR_CALLS[@]}"; do
-  [[ "$call" == "-S -e leak" ]] && found_erase_leak=1
-done
-assert_eq 1 $found_erase_leak "test_chpwd_away_from_project_erases_local_abbr_keys"
-assert_eq "" "${_ZSH_SNIP_LOCAL_ABBRS[(r)leak]}" \
-  "test_chpwd_away_clears_local_abbr_tracking"
-
-# Cleanup mock abbr function
-unfunction abbr 2>/dev/null || true
-
-# Cleanup tracking test environment
-cd "$ORIG_PWD_TRACK"
-ZSH_SNIP_DIR="$ORIG_ZSH_SNIP_DIR_TRACK"
-ZSH_SNIP_LOCAL_PATH="$ORIG_ZSH_SNIP_LOCAL_PATH_TRACK"
-_ZSH_SNIP_USER_ABBRS=()
-_ZSH_SNIP_LOCAL_ABBRS=()
-_ZSH_SNIP_CURRENT_PROJECT=""
-rm -rf "$ABBR_TRACK_TEST_DIR"
 
 
 # =============================================================================

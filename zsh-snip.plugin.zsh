@@ -238,7 +238,7 @@ _zsh_snip_write() {
 }
 
 # Duplicate a snippet file, rewriting only the # name: header line
-# Copies the source verbatim so args:/abbr:/shebangs/extra comments are preserved.
+# Copies the source verbatim so args:/shebangs/extra comments are preserved.
 # Args: src dest new_name
 _zsh_snip_duplicate_file() {
   local src="$1"
@@ -318,12 +318,6 @@ _zsh_snip_read_args() {
   print -r -- "$_zsh_snip_reply_args"
 }
 
-# Read abbr from a snippet file (only searches header, before # ---)
-_zsh_snip_read_abbr() {
-  _zsh_snip_read_header "$1"
-  print -r -- "$_zsh_snip_reply_abbr"
-}
-
 # Wrap command in anonymous function syntax for execution
 # Args: command [name] [description]
 # Output: () { # name: description\n<command>\n}
@@ -350,7 +344,7 @@ _zsh_snip_wrap_anon_func() {
 }
 
 # Read header and first line of command in one pass (optimized for listing)
-# Sets reply variables: _zsh_snip_reply_name, _zsh_snip_reply_desc, _zsh_snip_reply_args, _zsh_snip_reply_abbr, _zsh_snip_reply_preview
+# Sets reply variables: _zsh_snip_reply_name, _zsh_snip_reply_desc, _zsh_snip_reply_args, _zsh_snip_reply_preview
 # Args: filepath [max_preview_length]
 _zsh_snip_read_header() {
   local filepath="$1"
@@ -360,10 +354,10 @@ _zsh_snip_read_header() {
   # Track which fields have been seen so only the FIRST match wins. This keeps
   # results single-valued even when a file has no "# ---" separator (B4): the
   # loop would otherwise scan the whole file and let a later duplicate field win.
-  local got_name=0 got_desc=0 got_args=0 got_abbr=0
+  local got_name=0 got_desc=0 got_args=0
 
   # Initialize reply variables
-  typeset -g _zsh_snip_reply_name="" _zsh_snip_reply_desc="" _zsh_snip_reply_args="" _zsh_snip_reply_abbr="" _zsh_snip_reply_preview=""
+  typeset -g _zsh_snip_reply_name="" _zsh_snip_reply_desc="" _zsh_snip_reply_args="" _zsh_snip_reply_preview=""
 
   # Read file line by line until we get first content line
   while IFS= read -r line; do
@@ -384,9 +378,6 @@ _zsh_snip_read_header() {
       elif (( ! got_args )) && [[ "$line" == "# args: "* ]]; then
         _zsh_snip_reply_args="${line#\# args: }"
         got_args=1
-      elif (( ! got_abbr )) && [[ "$line" == "# abbr: "* ]]; then
-        _zsh_snip_reply_abbr="${line#\# abbr: }"
-        got_abbr=1
       fi
     else
       # First line after header separator - this is our preview
@@ -399,50 +390,6 @@ _zsh_snip_read_header() {
       break
     fi
   done < "$filepath"
-
-  # Return success (while loop returns non-zero on EOF which breaks set -e)
-  return 0
-}
-
-# Read header and full command content in one pass (for abbr loading)
-# Sets reply variables: _zsh_snip_reply_name, _zsh_snip_reply_desc, _zsh_snip_reply_args, _zsh_snip_reply_abbr, _zsh_snip_reply_command
-# Args: filepath
-_zsh_snip_read_header_full() {
-  local filepath="$1"
-  local line
-  local in_header=1
-  local command_lines=()
-
-  # Initialize reply variables
-  typeset -g _zsh_snip_reply_name="" _zsh_snip_reply_desc="" _zsh_snip_reply_args="" _zsh_snip_reply_abbr="" _zsh_snip_reply_command=""
-
-  # Read file line by line
-  while IFS= read -r line; do
-    if (( in_header )); then
-      # Check for header separator
-      if [[ "$line" == "# ---" ]]; then
-        in_header=0
-        continue
-      fi
-
-      # Extract header fields (escape # in pattern matching)
-      if [[ "$line" == "# name: "* ]]; then
-        _zsh_snip_reply_name="${line#\# name: }"
-      elif [[ "$line" == "# description: "* ]]; then
-        _zsh_snip_reply_desc="${line#\# description: }"
-      elif [[ "$line" == "# args: "* ]]; then
-        _zsh_snip_reply_args="${line#\# args: }"
-      elif [[ "$line" == "# abbr: "* ]]; then
-        _zsh_snip_reply_abbr="${line#\# abbr: }"
-      fi
-    else
-      # Collect command lines
-      command_lines+=("$line")
-    fi
-  done < "$filepath"
-
-  # Join command lines with newlines
-  _zsh_snip_reply_command="${(pj:\n:)command_lines}"
 
   # Return success (while loop returns non-zero on EOF which breaks set -e)
   return 0
@@ -576,7 +523,7 @@ _zsh_snip_apply_rename() {
 
 # Shared save implementation for both user and local scopes.
 # Writes the current buffer as a snippet under <dir>, opens it in the editor,
-# applies any rename the user made there, reloads abbreviations, and reports
+# applies any rename the user made there, and reports
 # the result using <label> (e.g. "Saved" or "Saved (local)").
 _zsh_snip_save_to_dir() {
   setopt LOCAL_OPTIONS EXTENDED_GLOB INTERACTIVE_COMMENTS
@@ -637,7 +584,6 @@ _zsh_snip_save_to_dir() {
   _zsh_snip_apply_rename "$filepath" "$default_name" "$dir"
   filepath="$_zsh_snip_rename_path"
 
-  _zsh_snip_abbr_reload_if_enabled
   zle reset-prompt
   if [[ -n "$_zsh_snip_rename_msg" ]]; then
     zle -M "$_zsh_snip_rename_msg"
@@ -667,7 +613,7 @@ _zsh_snip_insert_at_cursor() {
 # This is the single shared implementation of the "walk a scope dir with
 # **/*(N.) → strip the dir prefix to get the name → skip hidden/dotfiles →
 # (optionally) dedup so local shadows user" pattern used by search, the CLI
-# list/abbr commands, and the abbr auto-loader.
+# list command.
 #
 # Args: <scope> <mode>
 #   scope: user | local | both  - which scope dirs to walk
@@ -939,7 +885,7 @@ _zsh_snip_action_exec() {
 }
 
 # CTRL-E: open the snippet file in the editor, apply any rename the user made
-# (sanitized, collision-checked), and reload abbreviations. Returns to fzf.
+# (sanitized, collision-checked). Returns to fzf.
 # Args: <filepath> <name> <dir>
 _zsh_snip_action_edit() {
   local filepath="$1"
@@ -948,11 +894,9 @@ _zsh_snip_action_edit() {
   "${EDITOR:-vi}" "$filepath"
   _zsh_snip_apply_rename "$filepath" "$name" "$dir"
   [[ -n "$_zsh_snip_rename_msg" ]] && zle -M "$_zsh_snip_rename_msg"
-  _zsh_snip_abbr_reload_if_enabled
 }
 
-# CTRL-D: delete the snippet after a y/N confirmation, then reload
-# abbreviations. Returns to fzf.
+# CTRL-D: delete the snippet after a y/N confirmation. Returns to fzf.
 # Args: <filepath> <name>
 _zsh_snip_action_delete() {
   local filepath="$1"
@@ -964,12 +908,11 @@ _zsh_snip_action_delete() {
   echo
   if [[ "$response" == [yY] ]]; then
     rm "$filepath"
-    _zsh_snip_abbr_reload_if_enabled
   fi
 }
 
 # CTRL-N: duplicate the snippet, open the copy in the editor, apply any rename,
-# load its body into the buffer, and reload abbreviations.
+# and load its body into the buffer.
 # Args: <filepath> <name> <dir>
 # Returns non-zero (buffer untouched) when the duplicate name is already taken,
 # so the caller returns to fzf instead of accepting.
@@ -985,7 +928,7 @@ _zsh_snip_action_duplicate() {
     return 1
   fi
   [[ "$dup_name" == */* ]] && mkdir -p "${dup_path%/*}"
-  # Copy the original file verbatim (preserves args/abbr/shebang/comments),
+  # Copy the original file verbatim (preserves args/shebang/comments),
   # rewriting only the # name: line - regenerating from parsed fields drops
   # optional header fields.
   _zsh_snip_duplicate_file "$filepath" "$dup_path" "$dup_name"
@@ -995,7 +938,6 @@ _zsh_snip_action_duplicate() {
   dup_path="$_zsh_snip_rename_path"
   [[ -n "$_zsh_snip_rename_msg" ]] && zle -M "$_zsh_snip_rename_msg"
   local snippet_cmd=$(_zsh_snip_read_command "$dup_path")
-  _zsh_snip_abbr_reload_if_enabled
   BUFFER="$snippet_cmd"
   CURSOR=$#BUFFER
   return 0
@@ -1165,7 +1107,6 @@ zsh-snip() {
     expand) _zsh_snip_cli_expand "$@" ;;
     exec)   _zsh_snip_cli_exec "$@" ;;
     yank)   _zsh_snip_cli_yank "$@" ;;
-    abbr)   _zsh_snip_cli_abbr "$@" ;;
     "")
       echo "Usage: zsh-snip <command> [options]" >&2
       echo "" >&2
@@ -1175,7 +1116,6 @@ zsh-snip() {
       echo "  expand <name>      Output snippet content" >&2
       echo "  exec <name> [args] Execute snippet with arguments" >&2
       echo "  yank <name>        Copy snippet content to clipboard" >&2
-      echo "  abbr <command>     Manage abbreviations (list, load)" >&2
       echo "" >&2
       echo "Options:" >&2
       echo "  --user            Only user snippets" >&2
@@ -1509,243 +1449,6 @@ _zsh_snip_cli_resolve() {
   return 1
 }
 
-# =============================================================================
-# Abbreviation Integration (zsh-abbr)
-# =============================================================================
-
-# List snippets that have abbr: header defined
-# Output format: name [abbr-keys] description
-_zsh_snip_cli_abbr_list() {
-  setopt LOCAL_OPTIONS EXTENDED_GLOB
-
-  local scope=""  # empty = both, "user" = user only, "local" = local only
-  local no_color=0
-
-  local -a scope_flags o_nocolor
-  zparseopts -D -E -a scope_flags -- -user -local -no-color=o_nocolor
-  (( ${#scope_flags} )) && scope="${scope_flags[-1]#--}"
-  (( ${#o_nocolor} ))   && no_color=1
-
-  # No positionals accepted: an unknown -flag or any positional is an error.
-  local arg
-  for arg in "$@"; do
-    if [[ "$arg" == -* ]]; then
-      echo "zsh-snip abbr list: unknown option '$arg'" >&2
-      return 1
-    fi
-    echo "zsh-snip abbr list: unexpected argument '$arg'" >&2
-    return 1
-  done
-
-  # Track names we've seen (for local preference deduplication)
-  typeset -A seen_names
-
-  # Declare loop variables outside to avoid 'local' output issues
-  local f name record rrest
-
-  # Colors (disabled if not tty or --no-color)
-  local c_name="" c_abbr="" c_desc="" c_reset=""
-  if [[ -t 1 && $no_color -eq 0 ]]; then
-    c_name=$'\e[1;36m'   # bold cyan for name
-    c_abbr=$'\e[1;33m'   # bold yellow for abbr keys
-    c_desc=$'\e[37m'     # white/gray for description
-    c_reset=$'\e[0m'
-  fi
-
-  # Use unit separator for column alignment
-  local US=$'\x1f'
-
-  # Collect results as: name[US]abbr-keys[US]description
-  local results=()
-
-  # Enumerate both scopes (raw). Dedup is applied per-scope below: a local
-  # snippet only shadows a same-named user snippet when it actually defines an
-  # abbr, so seen_names is recorded after the abbr check (preserved behavior).
-  _zsh_snip_enumerate "${scope:-both}" raw
-
-  # Local snippets first (they take precedence)
-  if [[ "$scope" != "user" ]]; then
-    for record in "${_zsh_snip_enum[@]}"; do
-      [[ "${record%%$US*}" == "local" ]] || continue
-      rrest="${record#*$US}"; name="${rrest%%$US*}"; f="${rrest#*$US}"
-
-      # Read header including abbr field
-      _zsh_snip_read_header "$f"
-
-      # Skip if no abbr defined
-      [[ -z "$_zsh_snip_reply_abbr" ]] && continue
-
-      seen_names[$name]=1
-
-      results+=("${c_name}${name}${c_reset}${US}${c_abbr}${_zsh_snip_reply_abbr}${c_reset}${US}${c_desc}${_zsh_snip_reply_desc}${c_reset}")
-    done
-  fi
-
-  # User snippets
-  if [[ "$scope" != "local" ]]; then
-    for record in "${_zsh_snip_enum[@]}"; do
-      [[ "${record%%$US*}" == "user" ]] || continue
-      rrest="${record#*$US}"; name="${rrest%%$US*}"; f="${rrest#*$US}"
-
-      # Skip if local version exists (unless showing user-only)
-      if [[ "$scope" != "user" && -n "${seen_names[$name]}" ]]; then
-        continue
-      fi
-
-      # Read header including abbr field
-      _zsh_snip_read_header "$f"
-
-      # Skip if no abbr defined
-      [[ -z "$_zsh_snip_reply_abbr" ]] && continue
-
-      results+=("${c_name}${name}${c_reset}${US}${c_abbr}${_zsh_snip_reply_abbr}${c_reset}${US}${c_desc}${_zsh_snip_reply_desc}${c_reset}")
-    done
-  fi
-
-  # Output results
-  if (( ${#results[@]} > 0 )); then
-    printf '%s\n' "${results[@]}" | column -t -s $'\x1f'
-  fi
-}
-
-# Load abbreviations from snippets into zsh-abbr
-# Args: [--user|--local]
-_zsh_snip_cli_abbr_load() {
-  # Run under zsh defaults regardless of the user's global setopts. Reached both
-  # via the dispatcher and directly (startup --user load, chpwd local reload).
-  emulate -L zsh
-  setopt extendedglob interactivecomments
-
-  local scope=""  # empty = both, "user" = user only, "local" = local only
-
-  local -a scope_flags
-  zparseopts -D -E -a scope_flags -- -user -local
-  (( ${#scope_flags} )) && scope="${scope_flags[-1]#--}"
-
-  # No positionals accepted: an unknown -flag or any positional is an error.
-  local arg
-  for arg in "$@"; do
-    if [[ "$arg" == -* ]]; then
-      echo "zsh-snip abbr load: unknown option '$arg'" >&2
-      return 1
-    fi
-    echo "zsh-snip abbr load: unexpected argument '$arg'" >&2
-    return 1
-  done
-
-  # Check if abbr command is available
-  if ! command -v abbr &>/dev/null; then
-    # Check if we've warned before in this session
-    if [[ -z "${_ZSH_SNIP_ABBR_WARNED:-}" ]]; then
-      echo "zsh-snip: zsh-abbr not found, skipping abbreviation loading" >&2
-      echo "zsh-snip: install zsh-abbr or set ZSH_SNIP_ABBR=0 to suppress this warning" >&2
-      typeset -g _ZSH_SNIP_ABBR_WARNED=1
-    fi
-    return 0
-  fi
-
-  # Ensure per-scope tracking arrays exist so every registration is recorded.
-  typeset -ga _ZSH_SNIP_USER_ABBRS _ZSH_SNIP_LOCAL_ABBRS
-
-  local do_user=0 do_local=0
-  [[ "$scope" != "local" ]] && do_user=1
-  [[ "$scope" != "user" ]] && do_local=1
-
-  # Unload the keys previously registered for the scope(s) being reloaded before
-  # re-adding, so deleted snippets and removed abbr keys don't linger until a new
-  # shell. Each scope's tracking array is cleared and repopulated below.
-  (( do_user )) && _zsh_snip_abbr_unload user
-  (( do_local )) && _zsh_snip_abbr_unload local
-
-  # Track names we've seen (for local preference deduplication)
-  typeset -A seen_names
-
-  # Declare loop variables
-  local f name abbr_key record rrest
-  local US=$'\x1f'
-
-  # Enumerate both scopes (raw). Dedup is applied per-scope below: a local
-  # snippet only shadows a same-named user snippet when it defines an abbr, so
-  # seen_names is recorded after the abbr check (preserved behavior).
-  _zsh_snip_enumerate "${scope:-both}" raw
-
-  # Load local snippets first (they take precedence)
-  if (( do_local )); then
-    _zsh_snip_timing_start
-    for record in "${_zsh_snip_enum[@]}"; do
-      [[ "${record%%$US*}" == "local" ]] || continue
-      rrest="${record#*$US}"; name="${rrest%%$US*}"; f="${rrest#*$US}"
-
-      # Read header and command in one pass (optimized)
-      _zsh_snip_read_header_full "$f"
-
-      # Skip if no abbr defined
-      [[ -z "$_zsh_snip_reply_abbr" ]] && continue
-
-      seen_names[$name]=1
-
-      # Register each abbr key (space-separated) and track it for later unloading
-      for abbr_key in ${=_zsh_snip_reply_abbr}; do
-        # Use session abbreviations (-S) to avoid polluting zsh-abbr's config
-        abbr -S "$abbr_key=$_zsh_snip_reply_command" >/dev/null
-        _ZSH_SNIP_LOCAL_ABBRS+=("$abbr_key")
-      done
-    done
-    _zsh_snip_timing_end "abbr load (local)"
-  fi
-
-  # Load user snippets
-  if (( do_user )); then
-    _zsh_snip_timing_start
-    for record in "${_zsh_snip_enum[@]}"; do
-      [[ "${record%%$US*}" == "user" ]] || continue
-      rrest="${record#*$US}"; name="${rrest%%$US*}"; f="${rrest#*$US}"
-
-      # Skip if local version exists (unless showing user-only)
-      if (( do_local )) && [[ -n "${seen_names[$name]}" ]]; then
-        continue
-      fi
-
-      # Read header and command in one pass (optimized)
-      _zsh_snip_read_header_full "$f"
-
-      # Skip if no abbr defined
-      [[ -z "$_zsh_snip_reply_abbr" ]] && continue
-
-      # Register each abbr key (space-separated) and track it for later unloading
-      for abbr_key in ${=_zsh_snip_reply_abbr}; do
-        abbr -S "$abbr_key=$_zsh_snip_reply_command" >/dev/null
-        _ZSH_SNIP_USER_ABBRS+=("$abbr_key")
-      done
-    done
-    _zsh_snip_timing_end "abbr load (user)"
-  fi
-}
-
-# Main abbr subcommand dispatcher
-_zsh_snip_cli_abbr() {
-  local subcommand="$1"
-  shift 2>/dev/null
-
-  case "$subcommand" in
-    list) _zsh_snip_cli_abbr_list "$@" ;;
-    load) _zsh_snip_cli_abbr_load "$@" ;;
-    "")
-      echo "Usage: zsh-snip abbr <command> [options]" >&2
-      echo "" >&2
-      echo "Commands:" >&2
-      echo "  list [--user|--local]  List snippets with abbr: defined" >&2
-      echo "  load [--user|--local]  Load abbreviations into zsh-abbr" >&2
-      return 1
-      ;;
-    *)
-      echo "zsh-snip abbr: unknown command '$subcommand'" >&2
-      echo "Run 'zsh-snip abbr' for usage" >&2
-      return 1
-      ;;
-  esac
-}
-
 # Register widgets and keybindings
 zle -N _zsh_snip_save
 zle -N _zsh_snip_save_local
@@ -1754,91 +1457,3 @@ zle -N _zsh_snip_search
 bindkey '^X^S' _zsh_snip_save
 bindkey '^X^P' _zsh_snip_save_local
 bindkey '^X^X' _zsh_snip_search
-
-# =============================================================================
-# Auto-loading abbreviations (when ZSH_SNIP_ABBR=1)
-# =============================================================================
-
-# Unload abbreviations previously registered by zsh-snip for a given scope.
-# Erases each tracked key from zsh-abbr and clears that scope's tracking array.
-# Args: user | local
-_zsh_snip_abbr_unload() {
-  # Skip if abbr command not available
-  command -v abbr &>/dev/null || return 0
-
-  typeset -ga _ZSH_SNIP_USER_ABBRS _ZSH_SNIP_LOCAL_ABBRS
-
-  local which="$1"
-  local abbr_key
-
-  if [[ "$which" == "user" ]]; then
-    for abbr_key in "${_ZSH_SNIP_USER_ABBRS[@]}"; do
-      abbr -S -e "$abbr_key" 2>/dev/null || true
-    done
-    _ZSH_SNIP_USER_ABBRS=()
-  elif [[ "$which" == "local" ]]; then
-    for abbr_key in "${_ZSH_SNIP_LOCAL_ABBRS[@]}"; do
-      abbr -S -e "$abbr_key" 2>/dev/null || true
-    done
-    _ZSH_SNIP_LOCAL_ABBRS=()
-  fi
-}
-
-# Load local abbreviations for the current project (chpwd entry point).
-# Detects project changes and delegates registration to the unified loader,
-# which unloads the previously-tracked local keys before re-registering.
-_zsh_snip_abbr_load_local() {
-  # Run under zsh defaults regardless of the user's global setopts. Invoked at
-  # startup and from the chpwd hook, i.e. outside any hardened scope.
-  emulate -L zsh
-  setopt extendedglob interactivecomments
-
-  # Skip if abbr command not available
-  command -v abbr &>/dev/null || return 0
-
-  # Combined declaration+assignment so a non-zero exit from find_local_dir (no
-  # local dir found) is masked by `local` and does not trip callers' `set -e`.
-  local local_dir="$(_zsh_snip_find_local_dir)"
-
-  # No local dir found - unload any tracked local abbrs and forget the project
-  if [[ -z "$local_dir" ]]; then
-    _zsh_snip_abbr_unload local
-    typeset -g _ZSH_SNIP_CURRENT_PROJECT=""
-    return 0
-  fi
-
-  # Check if we're in the same project (avoid unnecessary reloads)
-  if [[ "$_ZSH_SNIP_CURRENT_PROJECT" == "$local_dir" ]]; then
-    return 0
-  fi
-
-  # New project: record it and (re)load its local abbrs. The unified loader
-  # unloads the previously-tracked local keys before re-registering.
-  typeset -g _ZSH_SNIP_CURRENT_PROJECT="$local_dir"
-  _zsh_snip_cli_abbr_load --local
-}
-
-# chpwd hook to auto-load/unload local abbrs on directory change
-_zsh_snip_abbr_chpwd() {
-  _zsh_snip_abbr_load_local
-}
-
-# Reload abbreviations after snippet changes (save/edit/delete)
-# Called by save, edit, duplicate, delete operations when ZSH_SNIP_ABBR=1
-_zsh_snip_abbr_reload_if_enabled() {
-  [[ "${ZSH_SNIP_ABBR:-0}" == "1" ]] || return 0
-  _zsh_snip_cli_abbr_load 2>/dev/null || true
-}
-
-# Initialize abbreviation auto-loading if enabled
-if [[ "${ZSH_SNIP_ABBR:-0}" == "1" ]]; then
-  # Load user abbreviations synchronously on startup
-  _zsh_snip_cli_abbr_load --user 2>/dev/null || true
-
-  # Set up chpwd hook for local abbreviations
-  autoload -Uz add-zsh-hook
-  add-zsh-hook chpwd _zsh_snip_abbr_chpwd
-
-  # Load local abbrs for current directory
-  _zsh_snip_abbr_load_local
-fi

@@ -1644,6 +1644,135 @@ rm -rf "$ABBR_LOAD_TEST_DIR"
 
 
 # =============================================================================
+# Tests for abbr reload/unload tracking (stale keys, leak prevention)
+# =============================================================================
+log ""
+log "Testing abbr reload/unload tracking..."
+
+# Create test environment
+ABBR_TRACK_TEST_DIR=$(mktemp -d)
+ABBR_TRACK_USER_DIR="$ABBR_TRACK_TEST_DIR/user-snippets"
+ABBR_TRACK_LOCAL_DIR="$ABBR_TRACK_TEST_DIR/project/.zsh-snip"
+ABBR_TRACK_PROJECT_DIR="$ABBR_TRACK_TEST_DIR/project/subdir"
+ABBR_TRACK_AWAY_DIR="$ABBR_TRACK_TEST_DIR/away"
+mkdir -p "$ABBR_TRACK_USER_DIR"
+mkdir -p "$ABBR_TRACK_LOCAL_DIR"
+mkdir -p "$ABBR_TRACK_PROJECT_DIR"
+mkdir -p "$ABBR_TRACK_AWAY_DIR"
+
+# Save original values
+ORIG_ZSH_SNIP_DIR_TRACK="$ZSH_SNIP_DIR"
+ORIG_ZSH_SNIP_LOCAL_PATH_TRACK="${ZSH_SNIP_LOCAL_PATH:-}"
+ORIG_PWD_TRACK="$PWD"
+
+# Set up test environment
+ZSH_SNIP_DIR="$ABBR_TRACK_USER_DIR"
+ZSH_SNIP_LOCAL_PATH=".zsh-snip"
+
+# Mock abbr command to capture add and erase calls
+typeset -ga MOCK_ABBR_CALLS
+MOCK_ABBR_CALLS=()
+abbr() {
+  MOCK_ABBR_CALLS+=("$*")
+}
+
+# Test: reloading after a snippet's abbr key is removed ERASES the stale key
+cd "$ABBR_TRACK_PROJECT_DIR"
+_ZSH_SNIP_USER_ABBRS=()
+_ZSH_SNIP_LOCAL_ABBRS=()
+_create_abbr_test_snippet "$ABBR_TRACK_USER_DIR" "mysnip" "foo" "echo foo"
+MOCK_ABBR_CALLS=()
+_zsh_snip_cli_abbr_load --user 2>&1 >/dev/null
+# Now remove the abbr key: replace foo with bar
+_create_abbr_test_snippet "$ABBR_TRACK_USER_DIR" "mysnip" "bar" "echo foo"
+MOCK_ABBR_CALLS=()
+_zsh_snip_cli_abbr_load --user 2>&1 >/dev/null
+found_erase_foo=0; found_add_bar=0
+for call in "${MOCK_ABBR_CALLS[@]}"; do
+  [[ "$call" == "-S -e foo" ]] && found_erase_foo=1
+  [[ "$call" == "-S bar="* ]] && found_add_bar=1
+done
+assert_eq 1 $found_erase_foo "test_reload_erases_stale_key_when_removed_from_abbr_field"
+assert_eq 1 $found_add_bar "test_reload_registers_new_key_after_abbr_field_change"
+rm -f "$ABBR_TRACK_USER_DIR/mysnip"
+
+# Test: reloading after deleting a snippet ERASES its abbr key
+_ZSH_SNIP_USER_ABBRS=()
+_ZSH_SNIP_LOCAL_ABBRS=()
+_create_abbr_test_snippet "$ABBR_TRACK_USER_DIR" "delme" "zap" "echo zap"
+MOCK_ABBR_CALLS=()
+_zsh_snip_cli_abbr_load --user 2>&1 >/dev/null
+rm -f "$ABBR_TRACK_USER_DIR/delme"
+MOCK_ABBR_CALLS=()
+_zsh_snip_cli_abbr_load --user 2>&1 >/dev/null
+found_erase_zap=0; found_add_zap=0
+for call in "${MOCK_ABBR_CALLS[@]}"; do
+  [[ "$call" == "-S -e zap" ]] && found_erase_zap=1
+  [[ "$call" == "-S zap="* ]] && found_add_zap=1
+done
+assert_eq 1 $found_erase_zap "test_reload_erases_abbr_key_of_deleted_snippet"
+assert_eq 0 $found_add_zap "test_reload_does_not_readd_deleted_snippet_abbr"
+
+# Test: a local abbr registered via the reload path IS tracked in the local array
+_ZSH_SNIP_USER_ABBRS=()
+_ZSH_SNIP_LOCAL_ABBRS=()
+_create_abbr_test_snippet "$ABBR_TRACK_LOCAL_DIR" "loc-snip" "loc" "echo loc"
+MOCK_ABBR_CALLS=()
+_zsh_snip_cli_abbr_load 2>&1 >/dev/null
+assert_eq "loc" "${_ZSH_SNIP_LOCAL_ABBRS[(r)loc]}" \
+  "test_local_abbr_via_reload_path_is_tracked_in_local_array"
+
+# Test: user-scope and local-scope keys are tracked separately
+_ZSH_SNIP_USER_ABBRS=()
+_ZSH_SNIP_LOCAL_ABBRS=()
+_create_abbr_test_snippet "$ABBR_TRACK_USER_DIR" "user-snip" "uonly" "echo uonly"
+_create_abbr_test_snippet "$ABBR_TRACK_LOCAL_DIR" "local-snip" "lonly" "echo lonly"
+MOCK_ABBR_CALLS=()
+_zsh_snip_cli_abbr_load 2>&1 >/dev/null
+assert_eq "uonly" "${_ZSH_SNIP_USER_ABBRS[(r)uonly]}" \
+  "test_user_key_tracked_in_user_array"
+assert_eq "" "${_ZSH_SNIP_USER_ABBRS[(r)lonly]}" \
+  "test_local_key_not_tracked_in_user_array"
+assert_eq "lonly" "${_ZSH_SNIP_LOCAL_ABBRS[(r)lonly]}" \
+  "test_local_key_tracked_in_local_array"
+assert_eq "" "${_ZSH_SNIP_LOCAL_ABBRS[(r)uonly]}" \
+  "test_user_key_not_tracked_in_local_array"
+
+# Test: chpwd away from a project erases the project's local abbr keys (no leak)
+_ZSH_SNIP_USER_ABBRS=()
+_ZSH_SNIP_LOCAL_ABBRS=()
+_ZSH_SNIP_CURRENT_PROJECT=""
+rm -f "$ABBR_TRACK_LOCAL_DIR"/*(N)
+_create_abbr_test_snippet "$ABBR_TRACK_LOCAL_DIR" "leak-snip" "leak" "echo leak"
+cd "$ABBR_TRACK_PROJECT_DIR"
+# Register the local abbr via the reload path (bug: previously untracked)
+_zsh_snip_cli_abbr_load 2>&1 >/dev/null
+# Leaving the project should erase the tracked local abbr key
+cd "$ABBR_TRACK_AWAY_DIR"
+MOCK_ABBR_CALLS=()
+_zsh_snip_abbr_load_local 2>&1 >/dev/null
+found_erase_leak=0
+for call in "${MOCK_ABBR_CALLS[@]}"; do
+  [[ "$call" == "-S -e leak" ]] && found_erase_leak=1
+done
+assert_eq 1 $found_erase_leak "test_chpwd_away_from_project_erases_local_abbr_keys"
+assert_eq "" "${_ZSH_SNIP_LOCAL_ABBRS[(r)leak]}" \
+  "test_chpwd_away_clears_local_abbr_tracking"
+
+# Cleanup mock abbr function
+unfunction abbr 2>/dev/null || true
+
+# Cleanup tracking test environment
+cd "$ORIG_PWD_TRACK"
+ZSH_SNIP_DIR="$ORIG_ZSH_SNIP_DIR_TRACK"
+ZSH_SNIP_LOCAL_PATH="$ORIG_ZSH_SNIP_LOCAL_PATH_TRACK"
+_ZSH_SNIP_USER_ABBRS=()
+_ZSH_SNIP_LOCAL_ABBRS=()
+_ZSH_SNIP_CURRENT_PROJECT=""
+rm -rf "$ABBR_TRACK_TEST_DIR"
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 log ""

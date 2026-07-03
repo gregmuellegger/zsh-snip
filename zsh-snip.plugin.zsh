@@ -1542,6 +1542,19 @@ _zsh_snip_cli_abbr_load() {
     return 0
   fi
 
+  # Ensure per-scope tracking arrays exist so every registration is recorded.
+  typeset -ga _ZSH_SNIP_USER_ABBRS _ZSH_SNIP_LOCAL_ABBRS
+
+  local do_user=0 do_local=0
+  [[ "$scope" != "local" ]] && do_user=1
+  [[ "$scope" != "user" ]] && do_local=1
+
+  # Unload the keys previously registered for the scope(s) being reloaded before
+  # re-adding, so deleted snippets and removed abbr keys don't linger until a new
+  # shell. Each scope's tracking array is cleared and repopulated below.
+  (( do_user )) && _zsh_snip_abbr_unload user
+  (( do_local )) && _zsh_snip_abbr_unload local
+
   # Track names we've seen (for local preference deduplication)
   typeset -A seen_names
 
@@ -1555,7 +1568,7 @@ _zsh_snip_cli_abbr_load() {
   _zsh_snip_enumerate "${scope:-both}" raw
 
   # Load local snippets first (they take precedence)
-  if [[ "$scope" != "user" ]]; then
+  if (( do_local )); then
     _zsh_snip_timing_start
     for record in "${_zsh_snip_enum[@]}"; do
       [[ "${record%%$US*}" == "local" ]] || continue
@@ -1569,24 +1582,25 @@ _zsh_snip_cli_abbr_load() {
 
       seen_names[$name]=1
 
-      # Register each abbr key (space-separated)
+      # Register each abbr key (space-separated) and track it for later unloading
       for abbr_key in ${=reply_abbr}; do
         # Use session abbreviations (-S) to avoid polluting zsh-abbr's config
         abbr -S "$abbr_key=$reply_command" >/dev/null
+        _ZSH_SNIP_LOCAL_ABBRS+=("$abbr_key")
       done
     done
     _zsh_snip_timing_end "abbr load (local)"
   fi
 
   # Load user snippets
-  if [[ "$scope" != "local" ]]; then
+  if (( do_user )); then
     _zsh_snip_timing_start
     for record in "${_zsh_snip_enum[@]}"; do
       [[ "${record%%$US*}" == "user" ]] || continue
       rrest="${record#*$US}"; name="${rrest%%$US*}"; f="${rrest#*$US}"
 
       # Skip if local version exists (unless showing user-only)
-      if [[ "$scope" != "user" && -n "${seen_names[$name]}" ]]; then
+      if (( do_local )) && [[ -n "${seen_names[$name]}" ]]; then
         continue
       fi
 
@@ -1596,9 +1610,10 @@ _zsh_snip_cli_abbr_load() {
       # Skip if no abbr defined
       [[ -z "$reply_abbr" ]] && continue
 
-      # Register each abbr key (space-separated)
+      # Register each abbr key (space-separated) and track it for later unloading
       for abbr_key in ${=reply_abbr}; do
         abbr -S "$abbr_key=$reply_command" >/dev/null
+        _ZSH_SNIP_USER_ABBRS+=("$abbr_key")
       done
     done
     _zsh_snip_timing_end "abbr load (user)"
@@ -1642,36 +1657,45 @@ bindkey '^X^X' _zsh_snip_search
 # Auto-loading abbreviations (when ZSH_SNIP_ABBR=1)
 # =============================================================================
 
-# Unload local abbreviations previously loaded by zsh-snip
-# Uses _ZSH_SNIP_LOCAL_ABBRS array to track which abbrs to remove
-_zsh_snip_abbr_unload_local() {
+# Unload abbreviations previously registered by zsh-snip for a given scope.
+# Erases each tracked key from zsh-abbr and clears that scope's tracking array.
+# Args: user | local
+_zsh_snip_abbr_unload() {
   # Skip if abbr command not available
   command -v abbr &>/dev/null || return 0
 
-  # Skip if no local abbrs were loaded
-  [[ -z "${_ZSH_SNIP_LOCAL_ABBRS:-}" ]] && return 0
+  typeset -ga _ZSH_SNIP_USER_ABBRS _ZSH_SNIP_LOCAL_ABBRS
 
-  # Unload each abbr key
+  local which="$1"
   local abbr_key
-  for abbr_key in "${_ZSH_SNIP_LOCAL_ABBRS[@]}"; do
-    abbr -S -e "$abbr_key" 2>/dev/null || true
-  done
 
-  # Clear the tracking array
-  _ZSH_SNIP_LOCAL_ABBRS=()
+  if [[ "$which" == "user" ]]; then
+    for abbr_key in "${_ZSH_SNIP_USER_ABBRS[@]}"; do
+      abbr -S -e "$abbr_key" 2>/dev/null || true
+    done
+    _ZSH_SNIP_USER_ABBRS=()
+  elif [[ "$which" == "local" ]]; then
+    for abbr_key in "${_ZSH_SNIP_LOCAL_ABBRS[@]}"; do
+      abbr -S -e "$abbr_key" 2>/dev/null || true
+    done
+    _ZSH_SNIP_LOCAL_ABBRS=()
+  fi
 }
 
-# Load local abbreviations and track them for later unloading
+# Load local abbreviations for the current project (chpwd entry point).
+# Detects project changes and delegates registration to the unified loader,
+# which unloads the previously-tracked local keys before re-registering.
 _zsh_snip_abbr_load_local() {
   # Skip if abbr command not available
   command -v abbr &>/dev/null || return 0
 
-  local local_dir
-  local_dir=$(_zsh_snip_find_local_dir)
+  # Combined declaration+assignment so a non-zero exit from find_local_dir (no
+  # local dir found) is masked by `local` and does not trip callers' `set -e`.
+  local local_dir="$(_zsh_snip_find_local_dir)"
 
-  # No local dir found - clear any previously loaded local abbrs
+  # No local dir found - unload any tracked local abbrs and forget the project
   if [[ -z "$local_dir" ]]; then
-    _zsh_snip_abbr_unload_local
+    _zsh_snip_abbr_unload local
     typeset -g _ZSH_SNIP_CURRENT_PROJECT=""
     return 0
   fi
@@ -1681,39 +1705,10 @@ _zsh_snip_abbr_load_local() {
     return 0
   fi
 
-  # Unload previous local abbrs if project changed
-  if [[ -n "${_ZSH_SNIP_CURRENT_PROJECT:-}" ]]; then
-    _zsh_snip_abbr_unload_local
-  fi
-
-  # Track new project
+  # New project: record it and (re)load its local abbrs. The unified loader
+  # unloads the previously-tracked local keys before re-registering.
   typeset -g _ZSH_SNIP_CURRENT_PROJECT="$local_dir"
-
-  # Initialize tracking array
-  typeset -ga _ZSH_SNIP_LOCAL_ABBRS
-  _ZSH_SNIP_LOCAL_ABBRS=()
-
-  # Load local abbrs (local scope only, raw - no user snippets involved)
-  _zsh_snip_timing_start
-  local US=$'\x1f'
-  local f abbr_key record
-  _zsh_snip_enumerate local raw
-  for record in "${_zsh_snip_enum[@]}"; do
-    f="${record##*$US}"
-
-    # Read header and command in one pass (optimized)
-    _zsh_snip_read_header_full "$f"
-
-    # Skip if no abbr defined
-    [[ -z "$reply_abbr" ]] && continue
-
-    # Register each abbr key and track it
-    for abbr_key in ${=reply_abbr}; do
-      abbr -S "$abbr_key=$reply_command" 2>/dev/null || true
-      _ZSH_SNIP_LOCAL_ABBRS+=("$abbr_key")
-    done
-  done
-  _zsh_snip_timing_end "abbr load local (chpwd)"
+  _zsh_snip_cli_abbr_load --local
 }
 
 # chpwd hook to auto-load/unload local abbrs on directory change

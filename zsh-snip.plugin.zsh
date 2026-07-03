@@ -642,6 +642,89 @@ _zsh_snip_insert_at_cursor() {
   CURSOR=$((CURSOR + ${#text}))
 }
 
+# Enumerate snippets across scopes into the global array _zsh_snip_enum.
+#
+# This is the single shared implementation of the "walk a scope dir with
+# **/*(N.) → strip the dir prefix to get the name → skip hidden/dotfiles →
+# (optionally) dedup so local shadows user" pattern used by search, the CLI
+# list/abbr commands, and the abbr auto-loader.
+#
+# Args: <scope> <mode>
+#   scope: user | local | both  - which scope dirs to walk
+#   mode:  dedup | raw
+#     dedup: local snippets first (each name recorded once; a local snippet
+#            shadows a same-named user snippet), then user snippets whose name
+#            was not seen locally. Used by list/search-style callers.
+#     raw:   user snippets first, then local snippets - both scopes in full,
+#            no dedup. Used where each scope is handled independently.
+#
+# Fills global array _zsh_snip_enum with one record per snippet, formatted as
+# "scope<US>name<US>filepath" (US = $'\x1f'); scope is "user" or "local", name
+# is the path relative to the scope dir (subdirs preserved, e.g. git/add).
+# The glob uses (N.) (nullglob, regular files only); names matching .* or */.*
+# (hidden files / dotfiles) are skipped.
+_zsh_snip_enumerate() {
+  setopt LOCAL_OPTIONS EXTENDED_GLOB
+  local scope="$1"
+  local mode="$2"
+  local US=$'\x1f'
+  local user_dir="$ZSH_SNIP_DIR"
+  # Combined declaration+assignment so a non-zero exit from find_local_dir (no
+  # local dir found) is masked by `local` and does not trip callers' `set -e`.
+  local local_dir="$(_zsh_snip_find_local_dir)"
+
+  typeset -ga _zsh_snip_enum
+  _zsh_snip_enum=()
+
+  local f name
+  typeset -A _enum_seen
+
+  local do_user=0 do_local=0
+  [[ "$scope" != "local" ]] && do_user=1
+  [[ "$scope" != "user" ]] && do_local=1
+
+  if [[ "$mode" == "raw" ]]; then
+    # User first, then local; both scopes in full, no dedup.
+    if (( do_user )); then
+      for f in "$user_dir"/**/*(N.); do
+        [[ -f "$f" ]] || continue
+        name="${f#$user_dir/}"
+        [[ "$name" == .* || "$name" == */.* ]] && continue
+        _zsh_snip_enum+=("user${US}${name}${US}${f}")
+      done
+    fi
+    if (( do_local )) && [[ -n "$local_dir" ]]; then
+      for f in "$local_dir"/**/*(N.); do
+        [[ -f "$f" ]] || continue
+        name="${f#$local_dir/}"
+        [[ "$name" == .* || "$name" == */.* ]] && continue
+        _zsh_snip_enum+=("local${US}${name}${US}${f}")
+      done
+    fi
+  else
+    # dedup: local first (records each name, shadowing user), then user snippets
+    # whose name was not already seen locally.
+    if (( do_local )) && [[ -n "$local_dir" ]]; then
+      for f in "$local_dir"/**/*(N.); do
+        [[ -f "$f" ]] || continue
+        name="${f#$local_dir/}"
+        [[ "$name" == .* || "$name" == */.* ]] && continue
+        _enum_seen[$name]=1
+        _zsh_snip_enum+=("local${US}${name}${US}${f}")
+      done
+    fi
+    if (( do_user )); then
+      for f in "$user_dir"/**/*(N.); do
+        [[ -f "$f" ]] || continue
+        name="${f#$user_dir/}"
+        [[ "$name" == .* || "$name" == */.* ]] && continue
+        [[ -n "${_enum_seen[$name]}" ]] && continue
+        _zsh_snip_enum+=("user${US}${name}${US}${f}")
+      done
+    fi
+  fi
+}
+
 # Search and select snippet (CTRL-X CTRL-X)
 _zsh_snip_search() {
   # EXTENDED_GLOB for glob qualifiers, INTERACTIVE_COMMENTS so # in $() is a comment
@@ -674,13 +757,11 @@ _zsh_snip_search() {
 
   # Loop to allow returning to fzf after delete
   while true; do
-    # Gather snippets from both user and local directories
-    # N = nullglob (empty array if no matches), . = regular files only
-    local user_files=("$user_dir"/**/*(N.))
-    local local_files=()
-    [[ -n "$local_dir" ]] && local_files=("$local_dir"/**/*(N.))
+    # Gather snippets from both scopes via the shared iterator.
+    # raw mode: user records first, then local (no dedup - both prefixes shown).
+    _zsh_snip_enumerate both raw
 
-    if (( ${#user_files[@]} == 0 && ${#local_files[@]} == 0 )); then
+    if (( ${#_zsh_snip_enum[@]} == 0 )); then
       zle -M "zsh-snip: No snippets found"
       break
     fi
@@ -701,35 +782,25 @@ _zsh_snip_search() {
     _zsh_snip_timing_start
     fzf_list=$(
       {
-        # User snippets (prefix: ~)
-        for f in "${user_files[@]}"; do
-          [[ -f "$f" ]] || continue
-          local name="${f#$user_dir/}"
-          [[ "$name" == .* || "$name" == */.* ]] && continue
+        # Each record is "scope<US>name<US>filepath"; ~ = user, ! = local.
+        local record rscope rrest name f prefix desc cmd_preview
+        for record in "${_zsh_snip_enum[@]}"; do
+          rscope="${record%%$US*}"
+          rrest="${record#*$US}"
+          name="${rrest%%$US*}"
+          f="${rrest#*$US}"
+          [[ "$rscope" == "user" ]] && prefix='~' || prefix='!'
           _zsh_snip_read_header "$f" "$cmd_width"
-          local desc="$reply_desc"
-          local cmd_preview="$reply_preview"
+          desc="$reply_desc"
+          cmd_preview="$reply_preview"
           if (( ${#desc} > desc_width )); then
             desc="${desc[1,$((desc_width - 1))]}…"
           fi
-          printf '~ %s%s%s%s%s%s%s\n' "$name" "$US" "$desc" "$US" "$cmd_preview" "$US" "$f"
-        done
-        # Local snippets (prefix: !)
-        for f in "${local_files[@]}"; do
-          [[ -f "$f" ]] || continue
-          local name="${f#$local_dir/}"
-          [[ "$name" == .* || "$name" == */.* ]] && continue
-          _zsh_snip_read_header "$f" "$cmd_width"
-          local desc="$reply_desc"
-          local cmd_preview="$reply_preview"
-          if (( ${#desc} > desc_width )); then
-            desc="${desc[1,$((desc_width - 1))]}…"
-          fi
-          printf '! %s%s%s%s%s%s%s\n' "$name" "$US" "$desc" "$US" "$cmd_preview" "$US" "$f"
+          printf '%s %s%s%s%s%s%s%s\n' "$prefix" "$name" "$US" "$desc" "$US" "$cmd_preview" "$US" "$f"
         done
       } | column -t -s $'\x1f' -o $'\t'
     )
-    _zsh_snip_timing_end "fzf_list generation (${#user_files[@]} user + ${#local_files[@]} local snippets)"
+    _zsh_snip_timing_end "fzf_list generation (${#_zsh_snip_enum[@]} snippets)"
 
     # Check if yank/clipboard is available
     local yank_cmd=$(_zsh_snip_get_yank_cmd)
@@ -1054,9 +1125,6 @@ _zsh_snip_cli_list() {
   local local_dir
   local_dir=$(_zsh_snip_find_local_dir)
 
-  # Track names we've seen (for local preference deduplication)
-  typeset -A seen_names
-
   # Declare loop variables outside to avoid 'local' output issues
   local f name desc display_path
 
@@ -1075,22 +1143,25 @@ _zsh_snip_cli_list() {
   # Collect results as: name[US]path[US]description
   local results=()
 
-  # Local snippets first (they take precedence)
-  if [[ "$scope" != "user" && -n "$local_dir" ]]; then
-    local local_files=("$local_dir"/**/*(N.))
-    for f in "${local_files[@]}"; do
-      [[ -f "$f" ]] || continue
-      name="${f#$local_dir/}"
-      [[ "$name" == .* || "$name" == */.* ]] && continue
-      # Apply filter to full name (path)
-      [[ "$name" != $~filter ]] && continue
-      seen_names[$name]=1
+  # Enumerate snippets (dedup: local snippets first and shadow same-named user
+  # snippets). scope "" maps to "both". The filter is applied per record below;
+  # since dedup keys on the full name, a shadowed pair filters identically.
+  local record rscope rrest
+  _zsh_snip_enumerate "${scope:-both}" dedup
+  for record in "${_zsh_snip_enum[@]}"; do
+    rscope="${record%%$US*}"
+    rrest="${record#*$US}"
+    name="${rrest%%$US*}"
+    f="${rrest#*$US}"
+    # Apply filter to full name (path)
+    [[ "$name" != $~filter ]] && continue
 
-      if (( names_only )); then
-        results+=("$name")
-      else
-        _zsh_snip_read_header "$f"
-        desc="$reply_desc"
+    if (( names_only )); then
+      results+=("$name")
+    else
+      _zsh_snip_read_header "$f"
+      desc="$reply_desc"
+      if [[ "$rscope" == "local" ]]; then
         if (( full_path )); then
           display_path="$local_dir"
         else
@@ -1098,41 +1169,17 @@ _zsh_snip_cli_list() {
           display_path="${local_dir#$PWD/}"
           [[ "$display_path" == "$local_dir" ]] && display_path=$(realpath --relative-to="$PWD" "$local_dir" 2>/dev/null || echo "$local_dir")
         fi
-        results+=("${c_name}${name}${c_reset}${US}${c_path}${display_path}${c_reset}${US}${c_desc}${desc}${c_reset}")
-      fi
-    done
-  fi
-
-  # User snippets
-  if [[ "$scope" != "local" ]]; then
-    local user_files=("$user_dir"/**/*(N.))
-    for f in "${user_files[@]}"; do
-      [[ -f "$f" ]] || continue
-      name="${f#$user_dir/}"
-      [[ "$name" == .* || "$name" == */.* ]] && continue
-      # Apply filter to full name (path)
-      [[ "$name" != $~filter ]] && continue
-
-      # Skip if local version exists (unless showing user-only)
-      if [[ "$scope" != "user" && -n "${seen_names[$name]}" ]]; then
-        continue
-      fi
-
-      if (( names_only )); then
-        results+=("$name")
       else
-        _zsh_snip_read_header "$f"
-        desc="$reply_desc"
         if (( full_path )); then
           display_path="$user_dir"
         else
           # Abbreviate to just ~
           display_path="~"
         fi
-        results+=("${c_name}${name}${c_reset}${US}${c_path}${display_path}${c_reset}${US}${c_desc}${desc}${c_reset}")
       fi
-    done
-  fi
+      results+=("${c_name}${name}${c_reset}${US}${c_path}${display_path}${c_reset}${US}${c_desc}${desc}${c_reset}")
+    fi
+  done
 
   # Output results
   if (( names_only )); then
@@ -1389,15 +1436,11 @@ _zsh_snip_cli_abbr_list() {
     shift
   done
 
-  local user_dir="$ZSH_SNIP_DIR"
-  local local_dir
-  local_dir=$(_zsh_snip_find_local_dir)
-
   # Track names we've seen (for local preference deduplication)
   typeset -A seen_names
 
   # Declare loop variables outside to avoid 'local' output issues
-  local f name
+  local f name record rrest
 
   # Colors (disabled if not tty or --no-color)
   local c_name="" c_abbr="" c_desc="" c_reset=""
@@ -1414,13 +1457,16 @@ _zsh_snip_cli_abbr_list() {
   # Collect results as: name[US]abbr-keys[US]description
   local results=()
 
+  # Enumerate both scopes (raw). Dedup is applied per-scope below: a local
+  # snippet only shadows a same-named user snippet when it actually defines an
+  # abbr, so seen_names is recorded after the abbr check (preserved behavior).
+  _zsh_snip_enumerate "${scope:-both}" raw
+
   # Local snippets first (they take precedence)
-  if [[ "$scope" != "user" && -n "$local_dir" ]]; then
-    local local_files=("$local_dir"/**/*(N.))
-    for f in "${local_files[@]}"; do
-      [[ -f "$f" ]] || continue
-      name="${f#$local_dir/}"
-      [[ "$name" == .* || "$name" == */.* ]] && continue
+  if [[ "$scope" != "user" ]]; then
+    for record in "${_zsh_snip_enum[@]}"; do
+      [[ "${record%%$US*}" == "local" ]] || continue
+      rrest="${record#*$US}"; name="${rrest%%$US*}"; f="${rrest#*$US}"
 
       # Read header including abbr field
       _zsh_snip_read_header "$f"
@@ -1436,11 +1482,9 @@ _zsh_snip_cli_abbr_list() {
 
   # User snippets
   if [[ "$scope" != "local" ]]; then
-    local user_files=("$user_dir"/**/*(N.))
-    for f in "${user_files[@]}"; do
-      [[ -f "$f" ]] || continue
-      name="${f#$user_dir/}"
-      [[ "$name" == .* || "$name" == */.* ]] && continue
+    for record in "${_zsh_snip_enum[@]}"; do
+      [[ "${record%%$US*}" == "user" ]] || continue
+      rrest="${record#*$US}"; name="${rrest%%$US*}"; f="${rrest#*$US}"
 
       # Skip if local version exists (unless showing user-only)
       if [[ "$scope" != "user" && -n "${seen_names[$name]}" ]]; then
@@ -1498,24 +1542,24 @@ _zsh_snip_cli_abbr_load() {
     return 0
   fi
 
-  local user_dir="$ZSH_SNIP_DIR"
-  local local_dir
-  local_dir=$(_zsh_snip_find_local_dir)
-
   # Track names we've seen (for local preference deduplication)
   typeset -A seen_names
 
   # Declare loop variables
-  local f name abbr_keys abbr_key command
+  local f name abbr_key record rrest
+  local US=$'\x1f'
+
+  # Enumerate both scopes (raw). Dedup is applied per-scope below: a local
+  # snippet only shadows a same-named user snippet when it defines an abbr, so
+  # seen_names is recorded after the abbr check (preserved behavior).
+  _zsh_snip_enumerate "${scope:-both}" raw
 
   # Load local snippets first (they take precedence)
-  if [[ "$scope" != "user" && -n "$local_dir" ]]; then
+  if [[ "$scope" != "user" ]]; then
     _zsh_snip_timing_start
-    local local_files=("$local_dir"/**/*(N.))
-    for f in "${local_files[@]}"; do
-      [[ -f "$f" ]] || continue
-      name="${f#$local_dir/}"
-      [[ "$name" == .* || "$name" == */.* ]] && continue
+    for record in "${_zsh_snip_enum[@]}"; do
+      [[ "${record%%$US*}" == "local" ]] || continue
+      rrest="${record#*$US}"; name="${rrest%%$US*}"; f="${rrest#*$US}"
 
       # Read header and command in one pass (optimized)
       _zsh_snip_read_header_full "$f"
@@ -1537,11 +1581,9 @@ _zsh_snip_cli_abbr_load() {
   # Load user snippets
   if [[ "$scope" != "local" ]]; then
     _zsh_snip_timing_start
-    local user_files=("$user_dir"/**/*(N.))
-    for f in "${user_files[@]}"; do
-      [[ -f "$f" ]] || continue
-      name="${f#$user_dir/}"
-      [[ "$name" == .* || "$name" == */.* ]] && continue
+    for record in "${_zsh_snip_enum[@]}"; do
+      [[ "${record%%$US*}" == "user" ]] || continue
+      rrest="${record#*$US}"; name="${rrest%%$US*}"; f="${rrest#*$US}"
 
       # Skip if local version exists (unless showing user-only)
       if [[ "$scope" != "user" && -n "${seen_names[$name]}" ]]; then
@@ -1651,16 +1693,13 @@ _zsh_snip_abbr_load_local() {
   typeset -ga _ZSH_SNIP_LOCAL_ABBRS
   _ZSH_SNIP_LOCAL_ABBRS=()
 
-  # Load local abbrs
+  # Load local abbrs (local scope only, raw - no user snippets involved)
   _zsh_snip_timing_start
-  setopt LOCAL_OPTIONS EXTENDED_GLOB
-  local local_files=("$local_dir"/**/*(N.))
-  local f name abbr_key
-
-  for f in "${local_files[@]}"; do
-    [[ -f "$f" ]] || continue
-    name="${f#$local_dir/}"
-    [[ "$name" == .* || "$name" == */.* ]] && continue
+  local US=$'\x1f'
+  local f abbr_key record
+  _zsh_snip_enumerate local raw
+  for record in "${_zsh_snip_enum[@]}"; do
+    f="${record##*$US}"
 
     # Read header and command in one pass (optimized)
     _zsh_snip_read_header_full "$f"

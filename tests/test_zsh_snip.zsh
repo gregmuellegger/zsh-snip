@@ -795,6 +795,96 @@ rm -rf "$TEST_PROJECT_ROOT"
 
 
 # =============================================================================
+# Tests for _zsh_snip_enumerate (shared snippet iterator)
+# =============================================================================
+log ""
+log "Testing _zsh_snip_enumerate..."
+
+# Isolated fixture: user + local dirs with a shadowed name, a subdir snippet,
+# and hidden/dotfiles in both scopes.
+ENUM_TEST_DIR=$(mktemp -d)
+ENUM_USER_DIR="$ENUM_TEST_DIR/user"
+ENUM_PROJ_DIR="$ENUM_TEST_DIR/proj"
+ENUM_LOCAL_DIR="$ENUM_PROJ_DIR/.zsh-snip"
+mkdir -p "$ENUM_USER_DIR/git" "$ENUM_LOCAL_DIR" "$ENUM_PROJ_DIR/sub"
+
+# User snippets (incl. subdir git/add) + hidden files
+touch "$ENUM_USER_DIR/alpha" "$ENUM_USER_DIR/shared" "$ENUM_USER_DIR/git/add"
+touch "$ENUM_USER_DIR/.secret" "$ENUM_USER_DIR/git/.ignore"
+# Local snippets (shared shadows the user one) + hidden file
+touch "$ENUM_LOCAL_DIR/local-only" "$ENUM_LOCAL_DIR/shared" "$ENUM_LOCAL_DIR/.hidden"
+
+ORIG_ENUM_ZSH_SNIP_DIR="$ZSH_SNIP_DIR"
+ORIG_ENUM_LOCAL_PATH="${ZSH_SNIP_LOCAL_PATH:-}"
+ORIG_ENUM_PWD="$PWD"
+ZSH_SNIP_DIR="$ENUM_USER_DIR"
+ZSH_SNIP_LOCAL_PATH=".zsh-snip"
+cd "$ENUM_PROJ_DIR/sub"
+
+ENUM_US=$'\x1f'
+# Render _zsh_snip_enum as "scope:name|scope:name|..." (order-preserving)
+_enum_dump() {
+  local rec s r n out=()
+  for rec in "${_zsh_snip_enum[@]}"; do
+    s="${rec%%${ENUM_US}*}"; r="${rec#*${ENUM_US}}"; n="${r%%${ENUM_US}*}"
+    out+=("$s:$n")
+  done
+  local IFS='|'; echo "${out[*]}"
+}
+
+# dedup mode, both scopes: local shadows user, local-first ordering
+_zsh_snip_enumerate both dedup
+assert_eq "local:local-only|local:shared|user:alpha|user:git/add" "$(_enum_dump)" \
+  "enumerate dedup both: local shadows user, ordered local-then-user, hidden skipped"
+
+# raw mode, both scopes: user-first, both scopes in full, no dedup
+_zsh_snip_enumerate both raw
+assert_eq "user:alpha|user:git/add|user:shared|local:local-only|local:shared" "$(_enum_dump)" \
+  "enumerate raw both: user-first, both scopes, no dedup"
+
+# scope user only
+_zsh_snip_enumerate user dedup
+assert_eq "user:alpha|user:git/add|user:shared" "$(_enum_dump)" \
+  "enumerate scope user: only user snippets"
+
+# scope local only (dedup + raw both yield just local)
+_zsh_snip_enumerate local dedup
+assert_eq "local:local-only|local:shared" "$(_enum_dump)" \
+  "enumerate scope local dedup: only local snippets"
+_zsh_snip_enumerate local raw
+assert_eq "local:local-only|local:shared" "$(_enum_dump)" \
+  "enumerate scope local raw: only local snippets"
+
+# filepath field points at the real file (local wins for shadowed name)
+_zsh_snip_enumerate both dedup
+enum_shared_fp=""
+enum_alpha_fp=""
+for rec in "${_zsh_snip_enum[@]}"; do
+  [[ "$rec" == "local${ENUM_US}shared${ENUM_US}"* ]] && enum_shared_fp="${rec##*${ENUM_US}}"
+  [[ "$rec" == "user${ENUM_US}alpha${ENUM_US}"* ]] && enum_alpha_fp="${rec##*${ENUM_US}}"
+done
+assert_eq "$ENUM_LOCAL_DIR/shared" "$enum_shared_fp" \
+  "enumerate filepath field resolves shadowed name to local file"
+assert_eq "$ENUM_USER_DIR/alpha" "$enum_alpha_fp" \
+  "enumerate filepath field resolves user snippet path"
+
+# Hidden/dotfiles are skipped even when GLOB_DOTS makes the glob match them
+setopt GLOB_DOTS
+_zsh_snip_enumerate both dedup
+setopt NO_GLOB_DOTS
+enum_dump_out="$(_enum_dump)"
+[[ "$enum_dump_out" != *".secret"* && "$enum_dump_out" != *".hidden"* && "$enum_dump_out" != *".ignore"* ]]
+assert_eq 0 $? "enumerate skips hidden/dotfiles even under GLOB_DOTS"
+
+# Cleanup enumerate fixture
+cd "$ORIG_ENUM_PWD"
+ZSH_SNIP_DIR="$ORIG_ENUM_ZSH_SNIP_DIR"
+ZSH_SNIP_LOCAL_PATH="$ORIG_ENUM_LOCAL_PATH"
+unfunction _enum_dump
+rm -rf "$ENUM_TEST_DIR"
+
+
+# =============================================================================
 # Tests for zsh-snip CLI interface
 # =============================================================================
 log ""
@@ -847,6 +937,8 @@ _create_cli_test_snippet "$CLI_USER_DIR" "deploy" "Deploy app" 'deploy.sh $1 $2'
 _create_cli_test_snippet "$CLI_USER_DIR" "sub/nested" "Nested snippet" "echo nested"
 _create_cli_test_snippet "$CLI_LOCAL_DIR" "local-only" "Local only snippet" "echo local"
 _create_cli_test_snippet "$CLI_LOCAL_DIR" "git-status" "Local git status override" "git status --short"
+# Hidden/dotfile snippet - must never be listed
+_create_cli_test_snippet "$CLI_USER_DIR" ".hidden-snip" "Should be skipped" "echo hidden"
 
 # -----------------------------------------------------------------------------
 # Tests for zsh-snip list
@@ -913,6 +1005,11 @@ assert_contains "$output" "Local git status" "list prefers local over user for s
 # Test: list with nested snippet
 output=$(zsh-snip list 'sub/*' 2>&1)
 assert_contains "$output" "sub/nested" "list shows nested snippet path"
+
+# Test: list skips hidden/dotfile snippets
+output=$(zsh-snip list 2>&1)
+[[ "$output" != *".hidden-snip"* ]]
+assert_eq 0 $? "list skips hidden/dotfile snippets"
 
 # -----------------------------------------------------------------------------
 # Tests for zsh-snip expand

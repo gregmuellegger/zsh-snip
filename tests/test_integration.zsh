@@ -21,90 +21,10 @@ PROJECT_DIR="${SCRIPT_DIR:h}"
 # Test Framework
 # =============================================================================
 
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
+# Shared assertion helpers, counters, QUIET/color handling, and summary/exit.
+source "${SCRIPT_DIR}/lib/harness.zsh"
+
 TEST_DIR=""
-
-# Quiet mode - only show failures
-: ${QUIET:=0}
-
-# Log function that respects QUIET mode
-log() { [[ "$QUIET" != "1" ]] && echo "$@"; return 0; }
-
-# Colors (only if terminal supports them)
-if [[ -t 1 ]]; then
-    RED=$'\e[31m'
-    GREEN=$'\e[32m'
-    YELLOW=$'\e[33m'
-    RESET=$'\e[0m'
-else
-    RED="" GREEN="" YELLOW="" RESET=""
-fi
-
-assert_eq() {
-    local expected="$1"
-    local actual="$2"
-    local msg="$3"
-    TESTS_RUN=$((TESTS_RUN + 1))
-
-    if [[ "$expected" == "$actual" ]]; then
-        TESTS_PASSED=$((TESTS_PASSED + 1))
-        log "  ${GREEN}✓${RESET} $msg"
-    else
-        TESTS_FAILED=$((TESTS_FAILED + 1))
-        echo "  ${RED}✗${RESET} $msg"
-        echo "    expected: '$expected'"
-        echo "    actual:   '$actual'"
-    fi
-}
-
-assert_contains() {
-    local haystack="$1"
-    local needle="$2"
-    local msg="$3"
-    TESTS_RUN=$((TESTS_RUN + 1))
-
-    if [[ "$haystack" == *"$needle"* ]]; then
-        TESTS_PASSED=$((TESTS_PASSED + 1))
-        log "  ${GREEN}✓${RESET} $msg"
-    else
-        TESTS_FAILED=$((TESTS_FAILED + 1))
-        echo "  ${RED}✗${RESET} $msg"
-        echo "    expected to contain: '$needle'"
-        echo "    actual: '$haystack'"
-    fi
-}
-
-assert_file_exists() {
-    local filepath="$1"
-    local msg="$2"
-    TESTS_RUN=$((TESTS_RUN + 1))
-
-    if [[ -f "$filepath" ]]; then
-        TESTS_PASSED=$((TESTS_PASSED + 1))
-        log "  ${GREEN}✓${RESET} $msg"
-    else
-        TESTS_FAILED=$((TESTS_FAILED + 1))
-        echo "  ${RED}✗${RESET} $msg"
-        echo "    file not found: '$filepath'"
-    fi
-}
-
-assert_file_not_exists() {
-    local filepath="$1"
-    local msg="$2"
-    TESTS_RUN=$((TESTS_RUN + 1))
-
-    if [[ ! -e "$filepath" ]]; then
-        TESTS_PASSED=$((TESTS_PASSED + 1))
-        log "  ${GREEN}✓${RESET} $msg"
-    else
-        TESTS_FAILED=$((TESTS_FAILED + 1))
-        echo "  ${RED}✗${RESET} $msg"
-        echo "    file exists but shouldn't: '$filepath'"
-    fi
-}
 
 # =============================================================================
 # Test Environment Setup
@@ -921,15 +841,4 @@ test_search_fzf_list_is_tab_aligned
 # =============================================================================
 # Summary
 # =============================================================================
-log ""
-echo "=========================================="
-echo "Integration Tests Summary"
-echo "=========================================="
-echo "Tests run: $TESTS_RUN"
-echo "Passed:    ${GREEN}$TESTS_PASSED${RESET}"
-echo "Failed:    ${RED}$TESTS_FAILED${RESET}"
-echo "=========================================="
-
-# Exit code reflects the assertion counters (standard test-runner model).
-[[ $TESTS_FAILED -gt 0 ]] && exit 1
-exit 0
+_harness_summary "Integration Tests Summary"

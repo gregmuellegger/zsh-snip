@@ -16,51 +16,8 @@ function zle() { :; }
 function bindkey() { :; }
 source "$PROJECT_DIR/zsh-snip.plugin.zsh"
 
-# Test counters
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
-
-# Quiet mode - only show failures
-: ${QUIET:=0}
-
-# Log function that respects QUIET mode
-log() { [[ "$QUIET" != "1" ]] && echo "$@"; return 0; }
-
-# Test helper functions
-assert_eq() {
-  local expected="$1"
-  local actual="$2"
-  local msg="${3:-}"
-  TESTS_RUN=$((TESTS_RUN + 1))
-
-  if [[ "$expected" == "$actual" ]]; then
-    TESTS_PASSED=$((TESTS_PASSED + 1))
-    log "  ✓ $msg"
-  else
-    TESTS_FAILED=$((TESTS_FAILED + 1))
-    echo "  ✗ $msg"
-    echo "    expected: '$expected'"
-    echo "    actual:   '$actual'"
-  fi
-}
-
-assert_contains() {
-  local haystack="$1"
-  local needle="$2"
-  local msg="$3"
-  TESTS_RUN=$((TESTS_RUN + 1))
-
-  if [[ "$haystack" == *"$needle"* ]]; then
-    TESTS_PASSED=$((TESTS_PASSED + 1))
-    log "  ✓ $msg"
-  else
-    TESTS_FAILED=$((TESTS_FAILED + 1))
-    echo "  ✗ $msg"
-    echo "    expected to contain: '$needle'"
-    echo "    actual: '$haystack'"
-  fi
-}
+# Shared assertion helpers, counters, QUIET/color handling, and summary/exit.
+source "${SCRIPT_DIR}/lib/harness.zsh"
 
 # =============================================================================
 # Tests for _zsh_snip_extract_command
@@ -2168,13 +2125,4 @@ rm -rf "$HARDEN_USER_DIR" "$HARDEN_PROJECT_DIR"
 # =============================================================================
 # Summary
 # =============================================================================
-log ""
-echo "=========================================="
-echo "Tests run: $TESTS_RUN"
-echo "Passed:    $TESTS_PASSED"
-echo "Failed:    $TESTS_FAILED"
-echo "=========================================="
-
-# Exit code reflects the assertion counters (standard test-runner model).
-[[ $TESTS_FAILED -gt 0 ]] && exit 1
-exit 0
+_harness_summary

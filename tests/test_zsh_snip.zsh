@@ -1121,6 +1121,80 @@ assert_eq 1 $result "exec returns exit 1 for not found"
 # Note: History testing is tricky in non-interactive shell, skip for unit tests
 
 # -----------------------------------------------------------------------------
+# Characterization: CLI option-parsing contract (list/expand/path/exec/yank)
+# -----------------------------------------------------------------------------
+log ""
+log "Testing CLI option-parsing contract..."
+
+# list: unknown option is rejected with exit 1
+output=$(zsh-snip list --bogus 2>&1) && result=0 || result=$?
+assert_eq 1 $result "test_list_rejects_unknown_option_exit_1"
+assert_contains "$output" "unknown option" "test_list_rejects_unknown_option_message"
+
+# list: last positional filter wins when several are given
+output=$(zsh-snip list git-push docker-run 2>&1)
+assert_contains "$output" "docker-run" "test_list_last_positional_filter_wins_shows_last"
+[[ "$output" != *"git-push"* ]]
+assert_eq 0 $? "test_list_last_positional_filter_wins_excludes_earlier"
+
+# list: scope flag may appear before the positional filter
+output=$(zsh-snip list --user git 2>&1)
+assert_contains "$output" "git-push" "test_list_scope_flag_before_filter_keeps_user"
+[[ "$output" != *"local-only"* ]]
+assert_eq 0 $? "test_list_user_scope_excludes_local"
+
+# expand: missing name errors with exit 1
+output=$(zsh-snip expand 2>&1) && result=0 || result=$?
+assert_eq 1 $result "test_expand_missing_name_exit_1"
+assert_contains "$output" "missing snippet name" "test_expand_missing_name_message"
+
+# expand: unknown option is rejected
+output=$(zsh-snip expand --bogus git-push 2>&1) && result=0 || result=$?
+assert_eq 1 $result "test_expand_rejects_unknown_option_exit_1"
+assert_contains "$output" "unknown option" "test_expand_rejects_unknown_option_message"
+
+# path: missing name errors with exit 1
+output=$(zsh-snip path 2>&1) && result=0 || result=$?
+assert_eq 1 $result "test_path_missing_name_exit_1"
+assert_contains "$output" "missing snippet name" "test_path_missing_name_message"
+
+# path: extra positional argument is rejected
+output=$(zsh-snip path git-push extra 2>&1) && result=0 || result=$?
+assert_eq 1 $result "test_path_rejects_extra_argument_exit_1"
+assert_contains "$output" "unexpected argument" "test_path_rejects_extra_argument_message"
+
+# yank: missing name errors before clipboard resolution
+output=$(zsh-snip yank 2>&1) && result=0 || result=$?
+assert_eq 1 $result "test_yank_missing_name_exit_1"
+assert_contains "$output" "missing snippet name" "test_yank_missing_name_message"
+
+# yank: unknown option is rejected
+output=$(zsh-snip yank --bogus 2>&1) && result=0 || result=$?
+assert_eq 1 $result "test_yank_rejects_unknown_option_exit_1"
+assert_contains "$output" "unknown option" "test_yank_rejects_unknown_option_message"
+
+# exec: missing name errors with exit 1
+output=$(zsh-snip exec 2>&1) && result=0 || result=$?
+assert_eq 1 $result "test_exec_missing_name_exit_1"
+assert_contains "$output" "missing snippet name" "test_exec_missing_name_message"
+
+# exec: forwards remaining positional args to the snippet (current quoting merges
+# them into a single "$@" element via ${(q)args[@]} - characterize as-is)
+_create_cli_test_snippet "$CLI_USER_DIR" "echo-multi" "Echo all args" 'printf "%s\n" "$@"' '<a> <b>'
+output=$(zsh-snip exec echo-multi one two 2>&1)
+assert_eq "one two" "$output" "test_exec_forwards_remaining_args_to_snippet"
+
+# exec: a dashed token after the name is parsed as an option (rejected), not forwarded
+output=$(zsh-snip exec echo-multi --bogus 2>&1) && result=0 || result=$?
+assert_eq 1 $result "test_exec_dashed_arg_after_name_is_rejected_exit_1"
+assert_contains "$output" "unknown option" "test_exec_dashed_arg_after_name_is_rejected_message"
+
+# exec: a scope flag after the name is consumed as scope, not forwarded
+_create_cli_test_snippet "$CLI_USER_DIR" "scope-forward" "User only" 'echo "userscope"'
+output=$(zsh-snip exec scope-forward --user 2>&1)
+assert_eq "userscope" "$output" "test_exec_scope_flag_after_name_sets_scope"
+
+# -----------------------------------------------------------------------------
 # Tests for invalid subcommands
 # -----------------------------------------------------------------------------
 log ""
@@ -1535,6 +1609,17 @@ else
   log "  ✓ abbr list prefers local over user (deduplication)"
 fi
 
+# Characterization: abbr list option-parsing contract
+# unknown option is rejected
+output=$(zsh-snip abbr list --bogus 2>&1) && result=0 || result=$?
+assert_eq 1 $result "test_abbr_list_rejects_unknown_option_exit_1"
+assert_contains "$output" "unknown option" "test_abbr_list_rejects_unknown_option_message"
+
+# positional argument is rejected (abbr list takes no positionals)
+output=$(zsh-snip abbr list git-status 2>&1) && result=0 || result=$?
+assert_eq 1 $result "test_abbr_list_rejects_positional_argument_exit_1"
+assert_contains "$output" "unexpected argument" "test_abbr_list_rejects_positional_argument_message"
+
 # Cleanup abbr list test environment
 cd "$ORIG_PWD_ABBR"
 ZSH_SNIP_DIR="$ORIG_ZSH_SNIP_DIR_ABBR"
@@ -1632,6 +1717,17 @@ done
 assert_eq 1 $found_dps "load --local includes local abbrs (dps)"
 assert_eq 1 $found_gss "load --local includes local abbrs (gss)"
 assert_eq 0 $found_gl "load --local skips user abbrs"
+
+# Characterization: abbr load option-parsing contract
+# unknown option is rejected
+output=$(zsh-snip abbr load --bogus 2>&1) && result=0 || result=$?
+assert_eq 1 $result "test_abbr_load_rejects_unknown_option_exit_1"
+assert_contains "$output" "unknown option" "test_abbr_load_rejects_unknown_option_message"
+
+# positional argument is rejected (abbr load takes no positionals)
+output=$(zsh-snip abbr load extra 2>&1) && result=0 || result=$?
+assert_eq 1 $result "test_abbr_load_rejects_positional_argument_exit_1"
+assert_contains "$output" "unexpected argument" "test_abbr_load_rejects_positional_argument_message"
 
 # Cleanup mock abbr function
 unfunction abbr 2>/dev/null || true

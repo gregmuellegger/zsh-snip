@@ -1051,23 +1051,25 @@ _zsh_snip_cli_list() {
   local scope=""  # empty = both, "user" = user only, "local" = local only
   local no_color=0
 
-  # Parse arguments
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --names-only) names_only=1 ;;
-      --full-path)  full_path=1 ;;
-      --user)       scope="user" ;;
-      --local)      scope="local" ;;
-      --no-color)   no_color=1 ;;
-      -*)
-        echo "zsh-snip list: unknown option '$1'" >&2
-        return 1
-        ;;
-      *)
-        filter="$1"
-        ;;
-    esac
-    shift
+  # Parse options with zparseopts. Scope flags accumulate into scope_flags in the
+  # order given, so the last one wins (matches the old last-assignment-wins loop).
+  local -a scope_flags o_names o_full o_nocolor
+  zparseopts -D -E -a scope_flags -- \
+    -user -local \
+    -names-only=o_names -full-path=o_full -no-color=o_nocolor
+  (( ${#scope_flags} )) && scope="${scope_flags[-1]#--}"
+  (( ${#o_names} ))     && names_only=1
+  (( ${#o_full} ))      && full_path=1
+  (( ${#o_nocolor} ))   && no_color=1
+
+  # Remaining args: an unknown -flag is an error; the last positional is the filter.
+  local arg
+  for arg in "$@"; do
+    if [[ "$arg" == -* ]]; then
+      echo "zsh-snip list: unknown option '$arg'" >&2
+      return 1
+    fi
+    filter="$arg"
   done
 
   # If filter has no glob chars, wrap in *...* for substring match
@@ -1151,25 +1153,23 @@ _zsh_snip_cli_path() {
   local name=""
   local scope=""
 
-  # Parse arguments
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --user)  scope="user" ;;
-      --local) scope="local" ;;
-      -*)
-        echo "zsh-snip path: unknown option '$1'" >&2
-        return 1
-        ;;
-      *)
-        if [[ -z "$name" ]]; then
-          name="$1"
-        else
-          echo "zsh-snip path: unexpected argument '$1'" >&2
-          return 1
-        fi
-        ;;
-    esac
-    shift
+  local -a scope_flags
+  zparseopts -D -E -a scope_flags -- -user -local
+  (( ${#scope_flags} )) && scope="${scope_flags[-1]#--}"
+
+  # Remaining args: an unknown -flag or a second positional is an error.
+  local arg
+  for arg in "$@"; do
+    if [[ "$arg" == -* ]]; then
+      echo "zsh-snip path: unknown option '$arg'" >&2
+      return 1
+    fi
+    if [[ -z "$name" ]]; then
+      name="$arg"
+    else
+      echo "zsh-snip path: unexpected argument '$arg'" >&2
+      return 1
+    fi
   done
 
   if [[ -z "$name" ]]; then
@@ -1192,25 +1192,23 @@ _zsh_snip_cli_expand() {
   local name=""
   local scope=""
 
-  # Parse arguments
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --user)  scope="user" ;;
-      --local) scope="local" ;;
-      -*)
-        echo "zsh-snip expand: unknown option '$1'" >&2
-        return 1
-        ;;
-      *)
-        if [[ -z "$name" ]]; then
-          name="$1"
-        else
-          echo "zsh-snip expand: unexpected argument '$1'" >&2
-          return 1
-        fi
-        ;;
-    esac
-    shift
+  local -a scope_flags
+  zparseopts -D -E -a scope_flags -- -user -local
+  (( ${#scope_flags} )) && scope="${scope_flags[-1]#--}"
+
+  # Remaining args: an unknown -flag or a second positional is an error.
+  local arg
+  for arg in "$@"; do
+    if [[ "$arg" == -* ]]; then
+      echo "zsh-snip expand: unknown option '$arg'" >&2
+      return 1
+    fi
+    if [[ -z "$name" ]]; then
+      name="$arg"
+    else
+      echo "zsh-snip expand: unexpected argument '$arg'" >&2
+      return 1
+    fi
   done
 
   if [[ -z "$name" ]]; then
@@ -1233,24 +1231,25 @@ _zsh_snip_cli_exec() {
   local scope=""
   local -a args=()
 
-  # Parse arguments - flags must come before name
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --user)  scope="user" ;;
-      --local) scope="local" ;;
-      -*)
-        echo "zsh-snip exec: unknown option '$1'" >&2
-        return 1
-        ;;
-      *)
-        if [[ -z "$name" ]]; then
-          name="$1"
-        else
-          args+=("$1")
-        fi
-        ;;
-    esac
-    shift
+  # Parse the --user/--local scope flags from anywhere; zparseopts -D -E leaves the
+  # positional name and the trailing args to forward untouched and in order.
+  local -a scope_flags
+  zparseopts -D -E -a scope_flags -- -user -local
+  (( ${#scope_flags} )) && scope="${scope_flags[-1]#--}"
+
+  # First non-option is the snippet name; the rest are forwarded to the snippet.
+  # A leftover -flag is an unknown option (scope flags were already consumed).
+  local arg
+  for arg in "$@"; do
+    if [[ "$arg" == -* ]]; then
+      echo "zsh-snip exec: unknown option '$arg'" >&2
+      return 1
+    fi
+    if [[ -z "$name" ]]; then
+      name="$arg"
+    else
+      args+=("$arg")
+    fi
   done
 
   if [[ -z "$name" ]]; then
@@ -1288,25 +1287,23 @@ _zsh_snip_cli_yank() {
   local name=""
   local scope=""
 
-  # Parse arguments
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --user)  scope="user" ;;
-      --local) scope="local" ;;
-      -*)
-        echo "zsh-snip yank: unknown option '$1'" >&2
-        return 1
-        ;;
-      *)
-        if [[ -z "$name" ]]; then
-          name="$1"
-        else
-          echo "zsh-snip yank: unexpected argument '$1'" >&2
-          return 1
-        fi
-        ;;
-    esac
-    shift
+  local -a scope_flags
+  zparseopts -D -E -a scope_flags -- -user -local
+  (( ${#scope_flags} )) && scope="${scope_flags[-1]#--}"
+
+  # Remaining args: an unknown -flag or a second positional is an error.
+  local arg
+  for arg in "$@"; do
+    if [[ "$arg" == -* ]]; then
+      echo "zsh-snip yank: unknown option '$arg'" >&2
+      return 1
+    fi
+    if [[ -z "$name" ]]; then
+      name="$arg"
+    else
+      echo "zsh-snip yank: unexpected argument '$arg'" >&2
+      return 1
+    fi
   done
 
   if [[ -z "$name" ]]; then
@@ -1372,22 +1369,20 @@ _zsh_snip_cli_abbr_list() {
   local scope=""  # empty = both, "user" = user only, "local" = local only
   local no_color=0
 
-  # Parse arguments
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --user)     scope="user" ;;
-      --local)    scope="local" ;;
-      --no-color) no_color=1 ;;
-      -*)
-        echo "zsh-snip abbr list: unknown option '$1'" >&2
-        return 1
-        ;;
-      *)
-        echo "zsh-snip abbr list: unexpected argument '$1'" >&2
-        return 1
-        ;;
-    esac
-    shift
+  local -a scope_flags o_nocolor
+  zparseopts -D -E -a scope_flags -- -user -local -no-color=o_nocolor
+  (( ${#scope_flags} )) && scope="${scope_flags[-1]#--}"
+  (( ${#o_nocolor} ))   && no_color=1
+
+  # No positionals accepted: an unknown -flag or any positional is an error.
+  local arg
+  for arg in "$@"; do
+    if [[ "$arg" == -* ]]; then
+      echo "zsh-snip abbr list: unknown option '$arg'" >&2
+      return 1
+    fi
+    echo "zsh-snip abbr list: unexpected argument '$arg'" >&2
+    return 1
   done
 
   # Track names we've seen (for local preference deduplication)
@@ -1468,21 +1463,19 @@ _zsh_snip_cli_abbr_load() {
 
   local scope=""  # empty = both, "user" = user only, "local" = local only
 
-  # Parse arguments
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --user)  scope="user" ;;
-      --local) scope="local" ;;
-      -*)
-        echo "zsh-snip abbr load: unknown option '$1'" >&2
-        return 1
-        ;;
-      *)
-        echo "zsh-snip abbr load: unexpected argument '$1'" >&2
-        return 1
-        ;;
-    esac
-    shift
+  local -a scope_flags
+  zparseopts -D -E -a scope_flags -- -user -local
+  (( ${#scope_flags} )) && scope="${scope_flags[-1]#--}"
+
+  # No positionals accepted: an unknown -flag or any positional is an error.
+  local arg
+  for arg in "$@"; do
+    if [[ "$arg" == -* ]]; then
+      echo "zsh-snip abbr load: unknown option '$arg'" >&2
+      return 1
+    fi
+    echo "zsh-snip abbr load: unexpected argument '$arg'" >&2
+    return 1
   done
 
   # Check if abbr command is available

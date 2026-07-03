@@ -3,8 +3,10 @@
 #
 # Run: zsh tests/test_zsh_snip.zsh
 # Quiet mode (only failures): QUIET=1 zsh tests/test_zsh_snip.zsh
-
-set -e
+#
+# Exit code is governed by the assertion counters: the suite exits non-zero if
+# and only if at least one assertion failed. There is no `set -e`, so a
+# non-zero setup command never aborts the run before the summary prints.
 
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
@@ -2106,7 +2108,7 @@ assert_eq 0 $? "timing end reports an integer millisecond duration"
 # =============================================================================
 # Entry points must behave identically regardless of the user's global setopts.
 # Drive them under hostile options scoped to a subshell so they cannot
-# destabilize the rest of this suite (the harness runs under `set -e`).
+# destabilize the rest of this suite.
 log ""
 log "Testing option hardening under hostile setopts..."
 
@@ -2173,6 +2175,6 @@ echo "Passed:    $TESTS_PASSED"
 echo "Failed:    $TESTS_FAILED"
 echo "=========================================="
 
-if [[ $TESTS_FAILED -gt 0 ]]; then
-  exit 1
-fi
+# Exit code reflects the assertion counters (standard test-runner model).
+[[ $TESTS_FAILED -gt 0 ]] && exit 1
+exit 0

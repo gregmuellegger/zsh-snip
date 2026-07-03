@@ -469,6 +469,65 @@ test_alt_x_wraps_function() {
     stop_tmux_session
 }
 
+# Test: CTRL-X executes snippet as anonymous function (no args: header)
+# Exercises the extracted _zsh_snip_action_exec: it writes BUFFER and calls
+# `zle accept-line` from a nested function, so real execution proves BUFFER
+# propagation and accept-line still work in the widget's zle context.
+test_ctrl_x_exec_runs_snippet() {
+    log ""
+    log "Testing: CTRL-X executes snippet as anonymous function..."
+    start_tmux_session
+
+    # Output token differs from the source text (arithmetic is only evaluated on
+    # execution) so a match cannot be a false positive from the fzf preview.
+    create_test_snippet "exec-me" "Exec test" 'echo EXECTOKEN_$((21*2))'
+
+    # Open fzf (empty buffer -> the single snippet is highlighted)
+    send_keys C-x C-x
+    sleep 0.5
+
+    # Press CTRL-X: no args: header, so it runs via accept-line
+    send_keys C-x
+    sleep 0.8
+
+    local output=$(capture_pane)
+    assert_contains "$output" "EXECTOKEN_42" "ctrl-x executes snippet and prints evaluated output"
+
+    stop_tmux_session
+}
+
+# Test: CTRL-N duplicates a snippet and loads the copy into the buffer
+# Exercises the extracted _zsh_snip_action_duplicate: creates the copy file and
+# sets BUFFER to its body. EDITOR=true makes the editor step a no-op.
+test_ctrl_n_duplicates_snippet() {
+    log ""
+    log "Testing: CTRL-N duplicates snippet and loads it into the buffer..."
+    start_tmux_session
+
+    create_test_snippet "dup-me" "Dup test" "echo duplicated-body"
+
+    # Open fzf (single snippet highlighted)
+    send_keys C-x C-x
+    sleep 0.5
+
+    # Press CTRL-N to duplicate
+    send_keys C-n
+    sleep 0.8
+
+    # A duplicate named dup-me-1 must have been created
+    assert_file_exists "$ZSH_SNIP_DIR/dup-me-1" "ctrl-n created the duplicate file"
+
+    # The buffer should now hold the duplicated command body
+    local output=$(capture_pane)
+    assert_contains "$output" "echo duplicated-body" "ctrl-n loads duplicate body into buffer"
+
+    # Clean up the pending buffer
+    send_keys C-c
+    sleep 0.1
+
+    stop_tmux_session
+}
+
 # Test: abbr load registers abbreviations
 test_abbr_load() {
     log ""
@@ -740,6 +799,8 @@ run_test test_select_replaces_buffer
 run_test test_save_snippet
 run_test test_fzf_filter
 run_test test_alt_x_wraps_function
+run_test test_ctrl_x_exec_runs_snippet
+run_test test_ctrl_n_duplicates_snippet
 run_test test_abbr_load
 run_test test_abbr_chpwd
 run_test test_abbr_unload

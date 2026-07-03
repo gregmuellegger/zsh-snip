@@ -742,6 +742,259 @@ _zsh_snip_enumerate() {
   fi
 }
 
+# Build the aligned, tab-delimited list fed to fzf from the enumerated snippets.
+# Args: <desc_width> <cmd_width>  (column budgets already scaled to terminal width)
+# Reads the global _zsh_snip_enum array; prints one tab-delimited record per line:
+#   "<prefix> <name>\t<description>\t<command-preview>\t<fullpath>"
+# The first three columns are right-padded to their widest value with
+# ${(r:WIDTH:)} and joined by tab; the trailing path column is left unpadded -
+# byte-identical to the layout fzf's --delimiter=$'\t'/--with-nth=1,2,3 expects.
+# Pure zsh (no `column`, whose -o flag is util-linux only and missing on macOS).
+_zsh_snip_build_fzf_list() {
+  local desc_width="$1"
+  local cmd_width="$2"
+  # ASCII unit separator (\x1f) delimits the enum records; avoids | conflicts.
+  local US=$'\x1f'
+  local record rscope rrest name f prefix desc cmd_preview field1
+  local -a col_name col_desc col_preview col_path
+  local -i w_name=0 w_desc=0 w_preview=0
+  for record in "${_zsh_snip_enum[@]}"; do
+    rscope="${record%%$US*}"
+    rrest="${record#*$US}"
+    name="${rrest%%$US*}"
+    f="${rrest#*$US}"
+    [[ "$rscope" == "user" ]] && prefix='~' || prefix='!'
+    _zsh_snip_read_header "$f" "$cmd_width"
+    desc="$_zsh_snip_reply_desc"
+    cmd_preview="$_zsh_snip_reply_preview"
+    if (( ${#desc} > desc_width )); then
+      desc="${desc[1,$((desc_width - 1))]}…"
+    fi
+    field1="$prefix $name"
+    col_name+=("$field1")
+    col_desc+=("$desc")
+    col_preview+=("$cmd_preview")
+    col_path+=("$f")
+    (( ${#field1}      > w_name ))    && w_name=${#field1}
+    (( ${#desc}        > w_desc ))    && w_desc=${#desc}
+    (( ${#cmd_preview} > w_preview )) && w_preview=${#cmd_preview}
+  done
+  local -i i
+  for (( i = 1; i <= ${#col_name}; i++ )); do
+    printf '%s\t%s\t%s\t%s\n' \
+      "${(r:w_name:)col_name[i]}" \
+      "${(r:w_desc:)col_desc[i]}" \
+      "${(r:w_preview:)col_preview[i]}" \
+      "${col_path[i]}"
+  done
+}
+
+# Parse fzf's returned output into the pressed key plus the selected snippet
+# identity. fzf is invoked with --print-query/--expect, so its output is:
+#   line 1: the query   line 2: the pressed key   line 3+: the selected record
+# Args: <fzf_output>
+# Sets globals:
+#   _zsh_snip_fzf_query         - the query (preserved for the next fzf loop)
+#   _zsh_snip_fzf_key           - the pressed --expect key ("" for plain Enter)
+#   _zsh_snip_fzf_has_selection - 1 if a snippet was selected, else 0
+#   _zsh_snip_fzf_scope         - "user" (~ prefix) or "local" (! prefix)
+#   _zsh_snip_fzf_name          - snippet name with prefix/padding stripped
+#   _zsh_snip_fzf_filepath      - full path (last tab-separated field)
+# Always returns 0.
+_zsh_snip_parse_fzf_output() {
+  local fzf_output="$1"
+  typeset -g _zsh_snip_fzf_query _zsh_snip_fzf_key _zsh_snip_fzf_scope \
+    _zsh_snip_fzf_name _zsh_snip_fzf_filepath
+  typeset -gi _zsh_snip_fzf_has_selection
+
+  _zsh_snip_fzf_query="${fzf_output%%$'\n'*}"
+  local rest="${fzf_output#*$'\n'}"
+  _zsh_snip_fzf_key="${rest%%$'\n'*}"
+  # Extract selection only if there's a newline after the key. When fzf has no
+  # selection, output may be just "query\nkey" without a trailing selection.
+  local selected
+  if [[ "$rest" == *$'\n'* ]]; then
+    selected="${rest#*$'\n'}"
+  else
+    selected=""
+  fi
+
+  if [[ -z "$selected" ]]; then
+    _zsh_snip_fzf_has_selection=0
+    _zsh_snip_fzf_scope=""
+    _zsh_snip_fzf_name=""
+    _zsh_snip_fzf_filepath=""
+    return 0
+  fi
+  _zsh_snip_fzf_has_selection=1
+
+  # Field 1 is "<prefix> <name>"; field 4 (last) is the full path.
+  local display_name="${selected%%$'\t'*}"
+  # Trim trailing whitespace (the column right-padding)
+  display_name=$(echo "$display_name" | sed 's/[[:space:]]*$//')
+  _zsh_snip_fzf_filepath="${selected##*$'\t'}"
+  # Prefix ~ = user scope, ! = local scope.
+  if [[ "$display_name" == "~ "* ]]; then
+    _zsh_snip_fzf_scope="user"
+  else
+    _zsh_snip_fzf_scope="local"
+  fi
+  # Strip the scope prefix to get the operable snippet name.
+  _zsh_snip_fzf_name="${display_name#[~!] }"
+  return 0
+}
+
+# -----------------------------------------------------------------------------
+# Per-key action handlers for the CTRL-X CTRL-X search widget.
+#
+# Each is called from _zsh_snip_search while a zle widget is active, so they
+# share that zle context: writes to the special BUFFER/CURSOR parameters
+# propagate to the command line, and zle -M / zle reset-prompt / zle accept-line
+# / zle edit-command-line work as usual. They are only ever reached from the
+# widget and therefore inherit its `emulate -L zsh` option scope.
+# -----------------------------------------------------------------------------
+
+# Enter (default): replace the command line with the snippet body.
+# Args: <command>
+_zsh_snip_action_enter() {
+  BUFFER="$1"
+  CURSOR=$#BUFFER
+}
+
+# CTRL-I: insert the snippet at the cursor without replacing the buffer.
+# Args: <command>
+_zsh_snip_action_insert() {
+  _zsh_snip_insert_at_cursor "$1"
+}
+
+# ALT-X: wrap the snippet in an anonymous function and place it in the buffer so
+# the user can append arguments manually.
+# Args: <command> <name> <filepath>
+_zsh_snip_action_wrap() {
+  local command="$1"
+  local name="$2"
+  local filepath="$3"
+  local desc=$(_zsh_snip_read_description "$filepath")
+  local wrapped=$(_zsh_snip_wrap_anon_func "$command" "$name" "$desc")
+  BUFFER="$wrapped"
+  CURSOR=$#BUFFER
+}
+
+# CTRL-Y: copy the snippet body to the clipboard (only bound when a clipboard
+# command is available).
+# Args: <command> <name> <yank_cmd>
+_zsh_snip_action_yank() {
+  local command="$1"
+  local name="$2"
+  local yank_cmd="$3"
+  if [[ -n "$yank_cmd" ]]; then
+    printf '%s' "$command" | eval "$yank_cmd"
+    zle -M "Copied '$name' to clipboard"
+  fi
+}
+
+# ALT-E: insert the snippet into the buffer and open it for inline editing (fc).
+# Args: <command>
+_zsh_snip_action_edit_inline() {
+  BUFFER="$1"
+  CURSOR=$#BUFFER
+  zle reset-prompt
+  zle edit-command-line
+}
+
+# CTRL-X: execute the snippet as an anonymous function. Prompts for arguments
+# when the snippet declares an args: header, otherwise runs it via accept-line.
+# Args: <command> <name> <filepath>
+_zsh_snip_action_exec() {
+  local command="$1"
+  local name="$2"
+  local filepath="$3"
+  local desc=$(_zsh_snip_read_description "$filepath")
+  local args_hint=$(_zsh_snip_read_args "$filepath")
+  local wrapped=$(_zsh_snip_wrap_anon_func "$command" "$name" "$desc")
+  if [[ -n "$args_hint" ]]; then
+    # Prompt for args, then execute directly
+    zle reset-prompt
+    stty sane </dev/tty
+    [[ -n "$desc" ]] && echo "# $desc" >/dev/tty
+    echo -n "$name $args_hint: " >/dev/tty
+    local args
+    read -r args </dev/tty
+    local full_cmd="${wrapped}${args:-\"\"}"
+    print -s "$full_cmd"
+    eval "$full_cmd" </dev/tty >/dev/tty 2>&1
+  else
+    # No args needed - put in buffer and execute via accept-line
+    BUFFER="${wrapped}\"\""
+    CURSOR=$#BUFFER
+    zle reset-prompt
+    zle accept-line
+  fi
+}
+
+# CTRL-E: open the snippet file in the editor, apply any rename the user made
+# (sanitized, collision-checked), and reload abbreviations. Returns to fzf.
+# Args: <filepath> <name> <dir>
+_zsh_snip_action_edit() {
+  local filepath="$1"
+  local name="$2"
+  local dir="$3"
+  "${EDITOR:-vi}" "$filepath"
+  _zsh_snip_apply_rename "$filepath" "$name" "$dir"
+  [[ -n "$_zsh_snip_rename_msg" ]] && zle -M "$_zsh_snip_rename_msg"
+  _zsh_snip_abbr_reload_if_enabled
+}
+
+# CTRL-D: delete the snippet after a y/N confirmation, then reload
+# abbreviations. Returns to fzf.
+# Args: <filepath> <name>
+_zsh_snip_action_delete() {
+  local filepath="$1"
+  local name="$2"
+  zle reset-prompt
+  echo -n "Delete '$name'? [y/N] "
+  local response
+  read -k 1 response </dev/tty
+  echo
+  if [[ "$response" == [yY] ]]; then
+    rm "$filepath"
+    _zsh_snip_abbr_reload_if_enabled
+  fi
+}
+
+# CTRL-N: duplicate the snippet, open the copy in the editor, apply any rename,
+# load its body into the buffer, and reload abbreviations.
+# Args: <filepath> <name> <dir>
+# Returns non-zero (buffer untouched) when the duplicate name is already taken,
+# so the caller returns to fzf instead of accepting.
+_zsh_snip_action_duplicate() {
+  local filepath="$1"
+  local name="$2"
+  local dir="$3"
+  # Resolve the next name against the snippet's own directory (local or user).
+  local dup_name=$(_zsh_snip_duplicate_name "$dir" "$name")
+  local dup_path="$dir/$dup_name"
+  if [[ -e "$dup_path" ]]; then
+    echo "Error: '$dup_name' already exists, skipping duplicate"
+    return 1
+  fi
+  [[ "$dup_name" == */* ]] && mkdir -p "${dup_path%/*}"
+  # Copy the original file verbatim (preserves args/abbr/shebang/comments),
+  # rewriting only the # name: line - regenerating from parsed fields drops
+  # optional header fields.
+  _zsh_snip_duplicate_file "$filepath" "$dup_path" "$dup_name"
+  "${EDITOR:-vi}" "$dup_path"
+  # Apply any rename the user made (sanitized, collision-checked)
+  _zsh_snip_apply_rename "$dup_path" "$dup_name" "$dir"
+  dup_path="$_zsh_snip_rename_path"
+  [[ -n "$_zsh_snip_rename_msg" ]] && zle -M "$_zsh_snip_rename_msg"
+  local command=$(_zsh_snip_read_command "$dup_path")
+  _zsh_snip_abbr_reload_if_enabled
+  BUFFER="$command"
+  CURSOR=$#BUFFER
+  return 0
+}
+
 # Search and select snippet (CTRL-X CTRL-X)
 _zsh_snip_search() {
   # Run under zsh defaults regardless of the user's global setopts.
@@ -793,53 +1046,12 @@ _zsh_snip_search() {
     (( desc_width < 20 )) && desc_width=20
     (( cmd_width < 30 )) && cmd_width=30
 
-    # Generate list: prefix+name[US]description[US]preview[US]fullpath
-    # Using ASCII unit separator (\x1f) to avoid conflicts with | in content
+    # Generate the aligned, tab-delimited list fed to fzf.
     # Note: We generate fzf_list first, then pipe to fzf separately.
-    # Direct pipeline { ... } | column | fzf breaks in zle widget context.
-    local US=$'\x1f'
+    # Direct pipeline { ... } | fzf breaks in zle widget context.
     local fzf_list
     _zsh_snip_timing_start
-    fzf_list=$(
-      # Build the aligned, tab-delimited list in pure zsh. This replaces
-      # `column -t -s $'\x1f' -o $'\t'`, whose -o flag is util-linux only and
-      # is missing from BSD/macOS column. The first three columns are
-      # right-padded to their widest value with ${(r:WIDTH:)}, joined by tab,
-      # and the trailing path column is left unpadded - byte-identical to the
-      # column output that fzf's --delimiter=$'\t'/--with-nth=1,2,3 expects.
-      local record rscope rrest name f prefix desc cmd_preview field1
-      local -a col_name col_desc col_preview col_path
-      local -i w_name=0 w_desc=0 w_preview=0
-      for record in "${_zsh_snip_enum[@]}"; do
-        rscope="${record%%$US*}"
-        rrest="${record#*$US}"
-        name="${rrest%%$US*}"
-        f="${rrest#*$US}"
-        [[ "$rscope" == "user" ]] && prefix='~' || prefix='!'
-        _zsh_snip_read_header "$f" "$cmd_width"
-        desc="$_zsh_snip_reply_desc"
-        cmd_preview="$_zsh_snip_reply_preview"
-        if (( ${#desc} > desc_width )); then
-          desc="${desc[1,$((desc_width - 1))]}…"
-        fi
-        field1="$prefix $name"
-        col_name+=("$field1")
-        col_desc+=("$desc")
-        col_preview+=("$cmd_preview")
-        col_path+=("$f")
-        (( ${#field1}      > w_name ))    && w_name=${#field1}
-        (( ${#desc}        > w_desc ))    && w_desc=${#desc}
-        (( ${#cmd_preview} > w_preview )) && w_preview=${#cmd_preview}
-      done
-      local -i i
-      for (( i = 1; i <= ${#col_name}; i++ )); do
-        printf '%s\t%s\t%s\t%s\n' \
-          "${(r:w_name:)col_name[i]}" \
-          "${(r:w_desc:)col_desc[i]}" \
-          "${(r:w_preview:)col_preview[i]}" \
-          "${col_path[i]}"
-      done
-    )
+    fzf_list=$(_zsh_snip_build_fzf_list "$desc_width" "$cmd_width")
     _zsh_snip_timing_end "fzf_list generation (${#_zsh_snip_enum[@]} snippets)"
 
     # Check if yank/clipboard is available
@@ -863,148 +1075,40 @@ _zsh_snip_search() {
         --print-query
     )
 
-    # Parse fzf output: line 1 is query, line 2 is key pressed, line 3 is selection
-    # Capture query for next iteration (preserves search filter after edit/delete)
-    initial_query="${fzf_output%%$'\n'*}"
-    local rest="${fzf_output#*$'\n'}"
-    key="${rest%%$'\n'*}"
-    # Extract selection only if there's a newline after the key
-    # When fzf has no selection, output may be just "query\nkey" without trailing selection
-    if [[ "$rest" == *$'\n'* ]]; then
-      selected="${rest#*$'\n'}"
-    else
-      selected=""
-    fi
+    # Parse fzf output into the pressed key + selected snippet identity.
+    # The query is preserved for the next iteration (keeps the filter after
+    # returning from edit/delete).
+    _zsh_snip_parse_fzf_output "$fzf_output"
+    initial_query="$_zsh_snip_fzf_query"
+    key="$_zsh_snip_fzf_key"
 
-    if [[ -z "$selected" ]]; then
+    if (( ! _zsh_snip_fzf_has_selection )); then
       break
     fi
 
-    # Extract display name (field 1) and full path (field 4)
-    local display_name="${selected%%$'\t'*}"
-    # Trim trailing whitespace - use sed instead of EXTENDED_GLOB pattern
-    display_name=$(echo "$display_name" | sed 's/[[:space:]]*$//')
-    # Get field 4 (full path) - split by tab and get last field
-    filepath="${selected##*$'\t'}"
+    selected="$_zsh_snip_fzf_name"
+    filepath="$_zsh_snip_fzf_filepath"
     command=$(_zsh_snip_read_command "$filepath")
-    # Get the base directory for this snippet
+    # Base directory for this snippet, resolved from its own scope (local/user).
     local snip_dir
-    if [[ "$display_name" == "~ "* ]]; then
+    if [[ "$_zsh_snip_fzf_scope" == "user" ]]; then
       snip_dir="$user_dir"
     else
       snip_dir="$local_dir"
     fi
-    # Strip prefix from display name for operations
-    selected="${display_name#[~!] }"
 
     case "$key" in
-      ctrl-e)
-        # Edit the snippet file, then return to fzf
-        "${EDITOR:-vi}" "$filepath"
-        # Apply any rename the user made (sanitized, collision-checked)
-        _zsh_snip_apply_rename "$filepath" "$selected" "$snip_dir"
-        [[ -n "$_zsh_snip_rename_msg" ]] && zle -M "$_zsh_snip_rename_msg"
-        _zsh_snip_abbr_reload_if_enabled
-        continue
-        ;;
-      ctrl-d)
-        # Delete snippet with confirmation, then return to fzf
-        zle reset-prompt
-        echo -n "Delete '$selected'? [y/N] "
-        local response
-        read -k 1 response </dev/tty
-        echo
-        if [[ "$response" == [yY] ]]; then
-          rm "$filepath"
-          _zsh_snip_abbr_reload_if_enabled
-        fi
-        continue
-        ;;
-      ctrl-n)
-        # Duplicate snippet and open editor
-        # Resolve the next name against the snippet's own directory (local or user)
-        local dup_name=$(_zsh_snip_duplicate_name "$snip_dir" "$selected")
-        local dup_path="$snip_dir/$dup_name"
-        if [[ -e "$dup_path" ]]; then
-          echo "Error: '$dup_name' already exists, skipping duplicate"
-          continue
-        fi
-        [[ "$dup_name" == */* ]] && mkdir -p "${dup_path%/*}"
-        # Copy the original file verbatim (preserves args/abbr/shebang/comments),
-        # rewriting only the # name: line - regenerating from parsed fields drops
-        # optional header fields.
-        _zsh_snip_duplicate_file "$filepath" "$dup_path" "$dup_name"
-        "${EDITOR:-vi}" "$dup_path"
-        # Apply any rename the user made (sanitized, collision-checked)
-        _zsh_snip_apply_rename "$dup_path" "$dup_name" "$snip_dir"
-        dup_path="$_zsh_snip_rename_path"
-        [[ -n "$_zsh_snip_rename_msg" ]] && zle -M "$_zsh_snip_rename_msg"
-        command=$(_zsh_snip_read_command "$dup_path")
-        _zsh_snip_abbr_reload_if_enabled
-        BUFFER="$command"
-        CURSOR=$#BUFFER
-        break
-        ;;
-      alt-e)
-        # Insert into buffer and edit inline
-        BUFFER="$command"
-        CURSOR=$#BUFFER
-        zle reset-prompt
-        zle edit-command-line
-        break
-        ;;
-      ctrl-i)
-        # Insert at cursor position without replacing buffer
-        _zsh_snip_insert_at_cursor "$command"
-        break
-        ;;
-      alt-x)
-        # Wrap in anonymous function and place in buffer for manual args
-        local desc=$(_zsh_snip_read_description "$filepath")
-        local wrapped=$(_zsh_snip_wrap_anon_func "$command" "$selected" "$desc")
-        BUFFER="$wrapped"
-        CURSOR=$#BUFFER
-        break
-        ;;
-      ctrl-y)
-        # Yank/copy snippet content to clipboard
-        if [[ -n "$yank_cmd" ]]; then
-          printf '%s' "$command" | eval "$yank_cmd"
-          zle -M "Copied '$selected' to clipboard"
-        fi
-        break
-        ;;
-      ctrl-x)
-        # Execute as anonymous function, prompt for args only if args: header exists
-        local desc=$(_zsh_snip_read_description "$filepath")
-        local args_hint=$(_zsh_snip_read_args "$filepath")
-        local wrapped=$(_zsh_snip_wrap_anon_func "$command" "$selected" "$desc")
-        if [[ -n "$args_hint" ]]; then
-          # Prompt for args, then execute directly
-          zle reset-prompt
-          stty sane </dev/tty
-          [[ -n "$desc" ]] && echo "# $desc" >/dev/tty
-          echo -n "$selected $args_hint: " >/dev/tty
-          local args
-          read -r args </dev/tty
-          local full_cmd="${wrapped}${args:-\"\"}"
-          print -s "$full_cmd"
-          eval "$full_cmd" </dev/tty >/dev/tty 2>&1
-        else
-          # No args needed - put in buffer and execute via accept-line
-          BUFFER="${wrapped}\"\""
-          CURSOR=$#BUFFER
-          zle reset-prompt
-          zle accept-line
-        fi
-        break
-        ;;
-      *)
-        # Replace buffer with snippet
-        BUFFER="$command"
-        CURSOR=$#BUFFER
-        break
-        ;;
+      # ctrl-e / ctrl-d return to fzf (continue); the rest accept and break.
+      ctrl-e) _zsh_snip_action_edit "$filepath" "$selected" "$snip_dir"; continue ;;
+      ctrl-d) _zsh_snip_action_delete "$filepath" "$selected"; continue ;;
+      # Duplicate returns non-zero when the name is taken - go back to fzf.
+      ctrl-n) _zsh_snip_action_duplicate "$filepath" "$selected" "$snip_dir" && break || continue ;;
+      alt-e)  _zsh_snip_action_edit_inline "$command"; break ;;
+      ctrl-i) _zsh_snip_action_insert "$command"; break ;;
+      alt-x)  _zsh_snip_action_wrap "$command" "$selected" "$filepath"; break ;;
+      ctrl-y) _zsh_snip_action_yank "$command" "$selected" "$yank_cmd"; break ;;
+      ctrl-x) _zsh_snip_action_exec "$command" "$selected" "$filepath"; break ;;
+      *)      _zsh_snip_action_enter "$command"; break ;;
     esac
   done
 

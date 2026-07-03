@@ -921,6 +921,160 @@ rm -rf "$ENUM_TEST_DIR"
 
 
 # =============================================================================
+# Tests for _zsh_snip_build_fzf_list (search helper: fzf input list)
+# Characterizes the exact aligned, tab-delimited list format fed to fzf, so the
+# pure-zsh column padding stays byte-compatible with fzf's --delimiter/--with-nth.
+# =============================================================================
+log ""
+log "Testing _zsh_snip_build_fzf_list..."
+
+BUILD_DIR=$(mktemp -d)
+cat > "$BUILD_DIR/longnamehere" <<'EOF'
+# name: longnamehere
+# description: a longer description
+# ---
+echo long
+EOF
+cat > "$BUILD_DIR/s" <<'EOF'
+# name: s
+# description: short desc
+# ---
+echo short
+EOF
+
+BUILD_US=$'\x1f'
+_zsh_snip_enum=(
+  "user${BUILD_US}longnamehere${BUILD_US}$BUILD_DIR/longnamehere"
+  "user${BUILD_US}s${BUILD_US}$BUILD_DIR/s"
+)
+# desc_width=20, cmd_width=30 (matches an 80-column terminal budget)
+build_out=$(_zsh_snip_build_fzf_list 20 30)
+build_lines=("${(f)build_out}")
+
+assert_eq 2 ${#build_lines} \
+  "test_build_fzf_list_emits_one_line_per_snippet"
+
+# Locate rows by their (trimmed) first field
+build_short_line="" build_long_line=""
+for line in "${build_lines[@]}"; do
+  bf1="${line%%$'\t'*}"
+  [[ "$bf1" == "~ s"* ]] && build_short_line="$line"
+  [[ "$bf1" == "~ longnamehere"* ]] && build_long_line="$line"
+done
+
+# Exactly 4 tab-separated fields (3 tabs)
+build_short_tabs="${build_short_line//[^$'\t']/}"
+assert_eq 3 ${#build_short_tabs} \
+  "test_build_fzf_list_record_has_four_tab_fields"
+
+# Name column padded to the widest name (~ longnamehere = 14 chars)
+build_short_f1="${build_short_line%%$'\t'*}"
+build_long_f1="${build_long_line%%$'\t'*}"
+assert_eq "~ s           " "$build_short_f1" \
+  "test_build_fzf_list_pads_name_to_column_width"
+assert_eq "~ longnamehere" "$build_long_f1" \
+  "test_build_fzf_list_widest_name_defines_column_width"
+
+# Description column padded to desc_width (20 chars)
+build_short_rest="${build_short_line#*$'\t'}"
+build_short_f2="${build_short_rest%%$'\t'*}"
+assert_eq "short desc          " "$build_short_f2" \
+  "test_build_fzf_list_pads_description_to_desc_width"
+
+# Last field is the unpadded full path
+build_short_f4="${build_short_line##*$'\t'}"
+assert_eq "$BUILD_DIR/s" "$build_short_f4" \
+  "test_build_fzf_list_last_field_is_unpadded_path"
+
+# Local-scope records get the "!" prefix instead of "~"
+_zsh_snip_enum=("local${BUILD_US}s${BUILD_US}$BUILD_DIR/s")
+build_out=$(_zsh_snip_build_fzf_list 20 30)
+build_f1="${build_out%%$'\t'*}"
+assert_eq "! s" "$build_f1" \
+  "test_build_fzf_list_uses_bang_prefix_for_local_scope"
+
+# Description longer than desc_width is truncated with an ellipsis
+cat > "$BUILD_DIR/longdesc" <<'EOF'
+# name: longdesc
+# description: aaaaaaaaaaaaaaaaaaaaaaaaaaaa
+# ---
+echo x
+EOF
+_zsh_snip_enum=("user${BUILD_US}longdesc${BUILD_US}$BUILD_DIR/longdesc")
+build_out=$(_zsh_snip_build_fzf_list 10 30)
+build_rest="${build_out#*$'\t'}"
+build_f2="${build_rest%%$'\t'*}"
+assert_eq "aaaaaaaaa…" "$build_f2" \
+  "test_build_fzf_list_truncates_long_description_with_ellipsis"
+
+rm -rf "$BUILD_DIR"
+_zsh_snip_enum=()
+
+
+# =============================================================================
+# Tests for _zsh_snip_parse_fzf_output (search helper: parse fzf return)
+# Characterizes how the query/key/selection triple from fzf is split into the
+# pressed key plus the selected snippet identity (scope/name/filepath).
+# =============================================================================
+log ""
+log "Testing _zsh_snip_parse_fzf_output..."
+
+# Enter (empty key), user scope, padded name field must be trimmed
+_zsh_snip_parse_fzf_output $'myquery\n\n~ docker-run    \tRun it\tprev\t/path/to/docker-run'
+assert_eq "myquery" "$_zsh_snip_fzf_query" \
+  "test_parse_fzf_output_captures_query"
+assert_eq "" "$_zsh_snip_fzf_key" \
+  "test_parse_fzf_output_empty_key_for_enter"
+assert_eq "1" "$_zsh_snip_fzf_has_selection" \
+  "test_parse_fzf_output_flags_selection_present"
+assert_eq "user" "$_zsh_snip_fzf_scope" \
+  "test_parse_fzf_output_tilde_prefix_is_user_scope"
+assert_eq "docker-run" "$_zsh_snip_fzf_name" \
+  "test_parse_fzf_output_strips_prefix_and_padding_from_name"
+assert_eq "/path/to/docker-run" "$_zsh_snip_fzf_filepath" \
+  "test_parse_fzf_output_extracts_full_path_field"
+
+# Local scope (! prefix)
+_zsh_snip_parse_fzf_output $'q\nctrl-e\n! local-snip\tdesc\tprev\t/local/local-snip'
+assert_eq "ctrl-e" "$_zsh_snip_fzf_key" \
+  "test_parse_fzf_output_reports_ctrl_e_key"
+assert_eq "local" "$_zsh_snip_fzf_scope" \
+  "test_parse_fzf_output_bang_prefix_is_local_scope"
+assert_eq "local-snip" "$_zsh_snip_fzf_name" \
+  "test_parse_fzf_output_local_name_stripped"
+
+# Subdirectory name is preserved
+_zsh_snip_parse_fzf_output $'q\nctrl-x\n~ git/add\tdesc\tprev\t/path/git/add'
+assert_eq "git/add" "$_zsh_snip_fzf_name" \
+  "test_parse_fzf_output_preserves_subdir_name"
+assert_eq "/path/git/add" "$_zsh_snip_fzf_filepath" \
+  "test_parse_fzf_output_subdir_full_path"
+
+# Each --expect key round-trips through the key field
+for expect_key in alt-e ctrl-i ctrl-n ctrl-d alt-x ctrl-y; do
+  _zsh_snip_parse_fzf_output "q"$'\n'"$expect_key"$'\n'"~ n\td\tp\t/x/n"
+  assert_eq "$expect_key" "$_zsh_snip_fzf_key" \
+    "test_parse_fzf_output_reports_${expect_key}_key"
+done
+
+# No selection: only query + key present (user cancelled or pressed key on none)
+_zsh_snip_parse_fzf_output $'leftover\nctrl-x'
+assert_eq "leftover" "$_zsh_snip_fzf_query" \
+  "test_parse_fzf_output_keeps_query_when_no_selection"
+assert_eq "ctrl-x" "$_zsh_snip_fzf_key" \
+  "test_parse_fzf_output_keeps_key_when_no_selection"
+assert_eq "0" "$_zsh_snip_fzf_has_selection" \
+  "test_parse_fzf_output_flags_no_selection"
+assert_eq "" "$_zsh_snip_fzf_name" \
+  "test_parse_fzf_output_empty_name_when_no_selection"
+
+# Trailing newline but empty selection is also "no selection"
+_zsh_snip_parse_fzf_output $'q\nctrl-x\n'
+assert_eq "0" "$_zsh_snip_fzf_has_selection" \
+  "test_parse_fzf_output_empty_trailing_selection_is_no_selection"
+
+
+# =============================================================================
 # Tests for zsh-snip CLI interface
 # =============================================================================
 log ""

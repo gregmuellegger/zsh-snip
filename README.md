@@ -64,16 +64,23 @@ Saves as `~/.local/share/zsh-snip/docker-1`
 docker run --rm -it -v $(pwd):/app node:20 bash
 ```
 
+Saving a command with no trailing comment produces a snippet with no
+`# description:` line at all (the empty line is omitted, not written blank).
+
 You can change the `name:` tag, the file will be renamed to match accordingly.
 E.g. change to something like `node-shell` or `docker/node-shell`
-(subdirectories supported) - the file is renamed when you save.
+(subdirectories supported) - the file is renamed when you save. The new name is
+slugified, and a name containing `..` path segments or a leading `/` is rejected
+(the snippet keeps its previous name and a message is shown) so a rename can
+never move the file outside the snippet directory.
 
-> **Note:** The trailing-comment extraction is deliberately simple - it splits on
-> the first unescaped `#`, treating everything after it as the description (or, if
-> that text contains a colon, as `name: description`). It does not understand shell
-> quoting or URL fragments, so a command like `curl https://host/#anchor  # note`
-> or `echo "#tag"` will be split at the wrong `#`. When that happens, just edit the
-> `# name:` / `# description:` header lines in the editor after saving.
+> **Note:** Comment parsing is deliberately simple and not quote/URL-aware, and
+> the two halves use different rules: the saved command is stripped from the
+> **last** unescaped `#`, while the description (and optional `name:` prefix) is
+> taken from the **first** unescaped `#`. So `curl https://host/#anchor  # note`
+> keeps `#anchor` in the command but folds the fragment into the description, and
+> `echo "#tag"` is mis-split too. When that happens, just edit the `# name:` /
+> `# description:` header lines in the editor after saving.
 
 ### Find a snippet
 
@@ -154,6 +161,7 @@ You can then add arguments and press Enter.
 | `ZSH_SNIP_LOCAL_PATH` | `.zsh-snip` | Directory name for project-local snippets (set to empty string to disable) |
 | `ZSH_SNIP_YANK_CMD` | auto-detected | Clipboard command for `Ctrl+Y` (set to empty string to disable) |
 | `ZSH_SNIP_ABBR` | `0` | Set to `1` to enable zsh-abbr integration (auto-load abbreviations) |
+| `ZSH_SNIP_DEBUG_TIMING` | unset | Set to `1` to print `[timing] …` diagnostics for snippet operations |
 
 The plugin uses `$EDITOR` for editing snippets (falls back to `vi` if unset).
 

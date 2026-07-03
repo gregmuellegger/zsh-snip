@@ -645,6 +645,9 @@ _zsh_snip_save_to_dir() {
 
 # Save current buffer as user snippet (CTRL-X CTRL-S)
 _zsh_snip_save() {
+  # Run under zsh defaults regardless of the user's global setopts.
+  emulate -L zsh
+  setopt extendedglob interactivecomments
   _zsh_snip_save_to_dir "$ZSH_SNIP_DIR" "Saved"
 }
 
@@ -741,8 +744,11 @@ _zsh_snip_enumerate() {
 
 # Search and select snippet (CTRL-X CTRL-X)
 _zsh_snip_search() {
-  # EXTENDED_GLOB for glob qualifiers, INTERACTIVE_COMMENTS so # in $() is a comment
-  setopt LOCAL_OPTIONS EXTENDED_GLOB INTERACTIVE_COMMENTS
+  # Run under zsh defaults regardless of the user's global setopts.
+  # extendedglob for glob qualifiers; interactivecomments so # starts a comment
+  # in eval'd snippet bodies and the wrapped anonymous function.
+  emulate -L zsh
+  setopt extendedglob interactivecomments
 
   # Check fzf is available
   if ! command -v fzf &>/dev/null; then
@@ -1007,6 +1013,10 @@ _zsh_snip_search() {
 
 # Save current buffer as local/project snippet (CTRL-X CTRL-P)
 _zsh_snip_save_local() {
+  # Run under zsh defaults regardless of the user's global setopts.
+  emulate -L zsh
+  setopt extendedglob interactivecomments
+
   # Determine local snippet directory, creating one in $PWD if none exists
   local local_dir=$(_zsh_snip_find_local_dir)
   if [[ -z "$local_dir" ]]; then
@@ -1028,6 +1038,11 @@ _zsh_snip_save_local() {
 #   zsh-snip expand <name> [--user|--local]
 #   zsh-snip exec <name> [args...] [--user|--local]
 zsh-snip() {
+  # Run under zsh defaults regardless of the user's global setopts. Covers every
+  # _zsh_snip_cli_* subcommand, which are only reached through this dispatcher.
+  emulate -L zsh
+  setopt extendedglob interactivecomments
+
   local subcommand="$1"
   shift 2>/dev/null
 
@@ -1483,7 +1498,10 @@ _zsh_snip_cli_abbr_list() {
 # Load abbreviations from snippets into zsh-abbr
 # Args: [--user|--local]
 _zsh_snip_cli_abbr_load() {
-  setopt LOCAL_OPTIONS EXTENDED_GLOB
+  # Run under zsh defaults regardless of the user's global setopts. Reached both
+  # via the dispatcher and directly (startup --user load, chpwd local reload).
+  emulate -L zsh
+  setopt extendedglob interactivecomments
 
   local scope=""  # empty = both, "user" = user only, "local" = local only
 
@@ -1657,6 +1675,11 @@ _zsh_snip_abbr_unload() {
 # Detects project changes and delegates registration to the unified loader,
 # which unloads the previously-tracked local keys before re-registering.
 _zsh_snip_abbr_load_local() {
+  # Run under zsh defaults regardless of the user's global setopts. Invoked at
+  # startup and from the chpwd hook, i.e. outside any hardened scope.
+  emulate -L zsh
+  setopt extendedglob interactivecomments
+
   # Skip if abbr command not available
   command -v abbr &>/dev/null || return 0
 

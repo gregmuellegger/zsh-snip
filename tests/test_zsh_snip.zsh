@@ -1927,6 +1927,68 @@ assert_contains "$timing_output" "[timing] my-label: " \
 assert_eq 0 $? "timing end reports an integer millisecond duration"
 
 # =============================================================================
+# Tests for option hardening (emulate -L zsh in entry points)
+# =============================================================================
+# Entry points must behave identically regardless of the user's global setopts.
+# Drive them under hostile options scoped to a subshell so they cannot
+# destabilize the rest of this suite (the harness runs under `set -e`).
+log ""
+log "Testing option hardening under hostile setopts..."
+
+HARDEN_USER_DIR=$(mktemp -d)
+HARDEN_PROJECT_DIR=$(mktemp -d)
+HARDEN_LOCAL_DIR="$HARDEN_PROJECT_DIR/.zsh-snip"
+mkdir -p "$HARDEN_LOCAL_DIR"
+
+HARDEN_ORIG_DIR="$ZSH_SNIP_DIR"
+HARDEN_ORIG_LOCAL_PATH="$ZSH_SNIP_LOCAL_PATH"
+HARDEN_ORIG_PWD="$PWD"
+ZSH_SNIP_DIR="$HARDEN_USER_DIR"
+ZSH_SNIP_LOCAL_PATH=".zsh-snip"
+cd "$HARDEN_PROJECT_DIR"
+
+print -r -- $'# name: git-status\n# ---\ngit status' > "$HARDEN_USER_DIR/git-status"
+# A local override of git-status forces the dedup path (the _enum_seen
+# associative-array lookup), which is what breaks under `nounset` without
+# emulate -L zsh.
+print -r -- $'# name: git-status\n# ---\ngit status --short' > "$HARDEN_LOCAL_DIR/git-status"
+print -r -- $'# name: echoer\n# args: <a> <b>\n# ---\necho got "$1" "$2"' > "$HARDEN_USER_DIR/echoer"
+
+# list under hostile options must succeed and enumerate snippets.
+harden_rc=0
+harden_out=$( setopt nounset ksh_arrays sh_word_split glob_subst
+              zsh-snip list --names-only 2>&1 ) || harden_rc=$?
+assert_eq 0 "$harden_rc" \
+  "test_list_succeeds_under_nounset_ksharrays_shwordsplit_globsubst"
+assert_contains "$harden_out" "git-status" \
+  "test_list_outputs_snippets_under_hostile_setopts"
+assert_contains "$harden_out" "echoer" \
+  "test_list_outputs_all_names_under_hostile_setopts"
+
+# exec under hostile options: anonymous-function wrapping and (q) arg expansion
+# must run; nounset otherwise trips on the wrapped snippet's $1/$2.
+harden_rc=0
+harden_out=$( setopt nounset ksh_arrays sh_word_split glob_subst
+              zsh-snip exec echoer alpha beta 2>&1 ) || harden_rc=$?
+assert_eq 0 "$harden_rc" \
+  "test_exec_succeeds_under_hostile_setopts"
+assert_contains "$harden_out" "got alpha beta" \
+  "test_exec_runs_snippet_with_args_under_hostile_setopts"
+
+# expand under hostile options: content comes out unchanged (local override wins).
+harden_rc=0
+harden_out=$( setopt nounset ksh_arrays sh_word_split glob_subst
+              zsh-snip expand git-status 2>&1 ) || harden_rc=$?
+assert_contains "$harden_out" "git status --short" \
+  "test_expand_outputs_content_under_hostile_setopts"
+
+# Restore suite state.
+ZSH_SNIP_DIR="$HARDEN_ORIG_DIR"
+ZSH_SNIP_LOCAL_PATH="$HARDEN_ORIG_LOCAL_PATH"
+cd "$HARDEN_ORIG_PWD"
+rm -rf "$HARDEN_USER_DIR" "$HARDEN_PROJECT_DIR"
+
+# =============================================================================
 # Summary
 # =============================================================================
 log ""

@@ -1015,12 +1015,17 @@ _zsh_snip_search() {
     return 1
   fi
 
+  # All loop-scoped variables are declared here: a bare `local` re-declaration
+  # inside the loop would make zsh print the variable's value on iterations
+  # after the first (typeset without assignment prints existing parameters).
   local selected
   local key
   local filepath
   local snippet_cmd
   local preview_cmd
   local fzf_output
+  local fzf_list
+  local snip_dir
   local user_dir="$ZSH_SNIP_DIR"
   local local_dir=$(_zsh_snip_find_local_dir)
   # Pre-fill fzf query with current buffer content
@@ -1055,7 +1060,6 @@ _zsh_snip_search() {
     # Generate the aligned, tab-delimited list fed to fzf.
     # Note: We generate fzf_list first, then pipe to fzf separately.
     # Direct pipeline { ... } | fzf breaks in zle widget context.
-    local fzf_list
     _zsh_snip_timing_start
     fzf_list=$(_zsh_snip_build_fzf_list "$desc_width" "$cmd_width")
     _zsh_snip_timing_end "fzf_list generation (${#_zsh_snip_enum[@]} snippets)"
@@ -1096,7 +1100,6 @@ _zsh_snip_search() {
     filepath="$_zsh_snip_fzf_filepath"
     snippet_cmd=$(_zsh_snip_read_command "$filepath")
     # Base directory for this snippet, resolved from its own scope (local/user).
-    local snip_dir
     if [[ "$_zsh_snip_fzf_scope" == "user" ]]; then
       snip_dir="$user_dir"
     else

@@ -6,8 +6,8 @@
 # - Mock fzf via PATH manipulation to control selections
 # - Real file I/O with temp directories
 #
-# Run: zsh tests/test_integration.zsh
-# Quiet mode (only failures): QUIET=1 zsh tests/test_integration.zsh
+# Run (quiet by default, only failures + summary): zsh tests/test_integration.zsh
+# Verbose (all assertions): zsh tests/test_integration.zsh -v
 
 # Exit code is governed by the assertion counters (see summary at the bottom):
 # the suite exits non-zero iff at least one assertion failed. No `set -e`, so a
@@ -403,7 +403,8 @@ test_search_ctrl_e_opens_editor() {
     create_test_snippet "test-snippet" "Test" "echo hello"
 
     # ctrl-e should open editor and return to fzf
-    # We create a fzf mock that returns ctrl-e first, then cancels
+    # We create a fzf mock that returns ctrl-e twice (two edit round-trips
+    # exercise repeated loop iterations), then cancels
     cat > "$TEST_DIR/bin/fzf" <<FZF
 #!/bin/bash
 count_file="$TEST_DIR/logs/fzf_count"
@@ -412,13 +413,13 @@ echo "\$count" > "\$count_file"
 
 cat > "$TEST_DIR/logs/fzf_input_\${count}.log"
 
-if [[ "\$count" -eq 1 ]]; then
-    # First call: return ctrl-e selection
+if [[ "\$count" -le 2 ]]; then
+    # First two calls: return ctrl-e selection
     echo "test"
     echo "ctrl-e"
     echo "~ test-snippet	Test	echo hello	$ZSH_SNIP_DIR/test-snippet"
 else
-    # Second call: simulate cancellation (empty selection)
+    # Third call: simulate cancellation (empty selection)
     echo ""
     echo ""
     echo ""
@@ -426,12 +427,18 @@ fi
 FZF
     chmod +x "$TEST_DIR/bin/fzf"
 
-    _zsh_snip_search
+    # Capture stdout: the search loop must not leak anything to the terminal
+    # (a bare `local` re-declaration inside the loop makes zsh print the
+    # variable's value on later iterations). File-based assertions below are
+    # unaffected by the capture subshell.
+    local search_stdout
+    search_stdout="$(_zsh_snip_search)"
 
     # Verify editor was called
     local editor_log=$(get_editor_log)
     assert_contains "$editor_log" "EDITOR_CALL:" "editor was invoked for snippet"
     assert_contains "$editor_log" "test-snippet" "correct snippet was opened"
+    assert_eq "" "$search_stdout" "search loop emits nothing to stdout across iterations"
 
     teardown_test_env
 }

@@ -193,6 +193,27 @@ desc=$(_zsh_snip_read_description "$TEST_SNIP_DIR/test-3")
 assert_eq "" "$desc" \
   "reads empty description correctly"
 
+# An empty description must omit the "# description:" header line entirely
+# (no trailing-space placeholder line).
+if grep -q "^# description:" "$TEST_SNIP_DIR/test-3"; then has_desc_line=yes; else has_desc_line=no; fi
+assert_eq "no" "$has_desc_line" \
+  "test_write_omits_description_line_when_description_empty"
+
+# A non-empty description still writes the "# description:" header line
+_zsh_snip_write "$TEST_SNIP_DIR/test-hasdesc" "test-hasdesc" "Some description" "echo hi"
+if grep -q "^# description: Some description\$" "$TEST_SNIP_DIR/test-hasdesc"; then has_desc_line=yes; else has_desc_line=no; fi
+assert_eq "yes" "$has_desc_line" \
+  "test_write_keeps_description_line_when_description_present"
+
+# Guard: a slash-less filepath must write the file, not mkdir a directory named
+# after it (${filepath%/*} would otherwise expand to the whole name).
+GUARD_DIR=$(mktemp -d)
+( cd "$GUARD_DIR" && _zsh_snip_write "relname" "relname" "" "echo guarded" ) 2>/dev/null || true
+if [[ -f "$GUARD_DIR/relname" ]]; then r=yes; else r=no; fi
+assert_eq "yes" "$r" \
+  "test_write_slashless_path_writes_file_not_directory"
+rm -rf "$GUARD_DIR"
+
 # Test writing to subdirectory (e.g., git/add)
 _zsh_snip_write "$TEST_SNIP_DIR/git/add" "git/add" "stage files" "git add ."
 read_cmd=$(_zsh_snip_read_command "$TEST_SNIP_DIR/git/add")

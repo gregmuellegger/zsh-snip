@@ -222,16 +222,19 @@ _zsh_snip_write() {
 
   timestamp=$(date -Iseconds)
 
-  # Create parent directory if path contains subdirs (e.g., git/add)
-  mkdir -p "${filepath%/*}"
+  # Create parent directory only when the path actually contains one; a
+  # slash-less path would otherwise mkdir a directory named after the file.
+  [[ "$filepath" == */* ]] && mkdir -p "${filepath%/*}"
 
-  cat > "$filepath" <<EOF
-# name: $name
-# description: $description
-# created: $timestamp
-# ---
-$command
-EOF
+  # Omit the "# description:" line entirely when there is no description, rather
+  # than emitting an empty-valued placeholder line.
+  {
+    print -r -- "# name: $name"
+    [[ -n "$description" ]] && print -r -- "# description: $description"
+    print -r -- "# created: $timestamp"
+    print -r -- "# ---"
+    print -r -- "$command"
+  } > "$filepath"
 }
 
 # Duplicate a snippet file, rewriting only the # name: header line
@@ -802,6 +805,7 @@ _zsh_snip_build_fzf_list() {
 #   _zsh_snip_fzf_filepath      - full path (last tab-separated field)
 # Always returns 0.
 _zsh_snip_parse_fzf_output() {
+  setopt LOCAL_OPTIONS EXTENDED_GLOB
   local fzf_output="$1"
   typeset -g _zsh_snip_fzf_query _zsh_snip_fzf_key _zsh_snip_fzf_scope \
     _zsh_snip_fzf_name _zsh_snip_fzf_filepath
@@ -830,8 +834,10 @@ _zsh_snip_parse_fzf_output() {
 
   # Field 1 is "<prefix> <name>"; field 4 (last) is the full path.
   local display_name="${selected%%$'\t'*}"
-  # Trim trailing whitespace (the column right-padding)
-  display_name=$(echo "$display_name" | sed 's/[[:space:]]*$//')
+  # Trim trailing whitespace (the column right-padding). EXTENDED_GLOB's # means
+  # zero-or-more, so %%[[:space:]]# strips a trailing run of spaces (pure zsh,
+  # no fork).
+  display_name="${display_name%%[[:space:]]#}"
   _zsh_snip_fzf_filepath="${selected##*$'\t'}"
   # Prefix ~ = user scope, ! = local scope.
   if [[ "$display_name" == "~ "* ]]; then
@@ -871,11 +877,11 @@ _zsh_snip_action_insert() {
 # the user can append arguments manually.
 # Args: <command> <name> <filepath>
 _zsh_snip_action_wrap() {
-  local command="$1"
+  local snippet_cmd="$1"
   local name="$2"
   local filepath="$3"
   local desc=$(_zsh_snip_read_description "$filepath")
-  local wrapped=$(_zsh_snip_wrap_anon_func "$command" "$name" "$desc")
+  local wrapped=$(_zsh_snip_wrap_anon_func "$snippet_cmd" "$name" "$desc")
   BUFFER="$wrapped"
   CURSOR=$#BUFFER
 }
@@ -884,11 +890,11 @@ _zsh_snip_action_wrap() {
 # command is available).
 # Args: <command> <name> <yank_cmd>
 _zsh_snip_action_yank() {
-  local command="$1"
+  local snippet_cmd="$1"
   local name="$2"
   local yank_cmd="$3"
   if [[ -n "$yank_cmd" ]]; then
-    printf '%s' "$command" | eval "$yank_cmd"
+    printf '%s' "$snippet_cmd" | eval "$yank_cmd"
     zle -M "Copied '$name' to clipboard"
   fi
 }
@@ -906,12 +912,12 @@ _zsh_snip_action_edit_inline() {
 # when the snippet declares an args: header, otherwise runs it via accept-line.
 # Args: <command> <name> <filepath>
 _zsh_snip_action_exec() {
-  local command="$1"
+  local snippet_cmd="$1"
   local name="$2"
   local filepath="$3"
   local desc=$(_zsh_snip_read_description "$filepath")
   local args_hint=$(_zsh_snip_read_args "$filepath")
-  local wrapped=$(_zsh_snip_wrap_anon_func "$command" "$name" "$desc")
+  local wrapped=$(_zsh_snip_wrap_anon_func "$snippet_cmd" "$name" "$desc")
   if [[ -n "$args_hint" ]]; then
     # Prompt for args, then execute directly
     zle reset-prompt
@@ -988,9 +994,9 @@ _zsh_snip_action_duplicate() {
   _zsh_snip_apply_rename "$dup_path" "$dup_name" "$dir"
   dup_path="$_zsh_snip_rename_path"
   [[ -n "$_zsh_snip_rename_msg" ]] && zle -M "$_zsh_snip_rename_msg"
-  local command=$(_zsh_snip_read_command "$dup_path")
+  local snippet_cmd=$(_zsh_snip_read_command "$dup_path")
   _zsh_snip_abbr_reload_if_enabled
-  BUFFER="$command"
+  BUFFER="$snippet_cmd"
   CURSOR=$#BUFFER
   return 0
 }
@@ -1012,7 +1018,7 @@ _zsh_snip_search() {
   local selected
   local key
   local filepath
-  local command
+  local snippet_cmd
   local preview_cmd
   local fzf_output
   local user_dir="$ZSH_SNIP_DIR"
@@ -1088,7 +1094,7 @@ _zsh_snip_search() {
 
     selected="$_zsh_snip_fzf_name"
     filepath="$_zsh_snip_fzf_filepath"
-    command=$(_zsh_snip_read_command "$filepath")
+    snippet_cmd=$(_zsh_snip_read_command "$filepath")
     # Base directory for this snippet, resolved from its own scope (local/user).
     local snip_dir
     if [[ "$_zsh_snip_fzf_scope" == "user" ]]; then
@@ -1103,12 +1109,12 @@ _zsh_snip_search() {
       ctrl-d) _zsh_snip_action_delete "$filepath" "$selected"; continue ;;
       # Duplicate returns non-zero when the name is taken - go back to fzf.
       ctrl-n) _zsh_snip_action_duplicate "$filepath" "$selected" "$snip_dir" && break || continue ;;
-      alt-e)  _zsh_snip_action_edit_inline "$command"; break ;;
-      ctrl-i) _zsh_snip_action_insert "$command"; break ;;
-      alt-x)  _zsh_snip_action_wrap "$command" "$selected" "$filepath"; break ;;
-      ctrl-y) _zsh_snip_action_yank "$command" "$selected" "$yank_cmd"; break ;;
-      ctrl-x) _zsh_snip_action_exec "$command" "$selected" "$filepath"; break ;;
-      *)      _zsh_snip_action_enter "$command"; break ;;
+      alt-e)  _zsh_snip_action_edit_inline "$snippet_cmd"; break ;;
+      ctrl-i) _zsh_snip_action_insert "$snippet_cmd"; break ;;
+      alt-x)  _zsh_snip_action_wrap "$snippet_cmd" "$selected" "$filepath"; break ;;
+      ctrl-y) _zsh_snip_action_yank "$snippet_cmd" "$selected" "$yank_cmd"; break ;;
+      ctrl-x) _zsh_snip_action_exec "$snippet_cmd" "$selected" "$filepath"; break ;;
+      *)      _zsh_snip_action_enter "$snippet_cmd"; break ;;
     esac
   done
 

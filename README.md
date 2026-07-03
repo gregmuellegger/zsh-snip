@@ -68,6 +68,13 @@ You can change the `name:` tag, the file will be renamed to match accordingly.
 E.g. change to something like `node-shell` or `docker/node-shell`
 (subdirectories supported) - the file is renamed when you save.
 
+> **Note:** The trailing-comment extraction is deliberately simple - it splits on
+> the first unescaped `#`, treating everything after it as the description (or, if
+> that text contains a colon, as `name: description`). It does not understand shell
+> quoting or URL fragments, so a command like `curl https://host/#anchor  # note`
+> or `echo "#tag"` will be split at the wrong `#`. When that happens, just edit the
+> `# name:` / `# description:` header lines in the editor after saving.
+
 ### Find a snippet
 
 Press `Ctrl+X Ctrl+X` to search snippets with fzf. Both user and local snippets are shown:

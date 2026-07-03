@@ -277,6 +277,83 @@ args=$(_zsh_snip_read_args "$TEST_SNIP_DIR/test-args-extra")
 assert_eq "<domain> [port]" "$args" \
   "reads args from complex header"
 
+# =============================================================================
+# Tests for single-field header readers (name/description/args/abbr)
+# Covers B4 regression: pure-zsh reader must stop at the first match and at
+# the # --- separator, never running past a sensible bound.
+# =============================================================================
+log ""
+log "Testing single-field header readers..."
+
+HDR_TEST_DIR=$(mktemp -d)
+
+# test_read_name_returns_first_name_when_no_separator (B4 regression)
+# A file with two "# name:" lines and NO "# ---" must return only the first,
+# as a single line with no embedded newline.
+cat > "$HDR_TEST_DIR/no-separator" <<'EOF'
+# name: first-name
+# name: second-name
+echo hello
+EOF
+name=$(_zsh_snip_read_name "$HDR_TEST_DIR/no-separator")
+assert_eq "first-name" "$name" \
+  "test_read_name_returns_first_name_when_no_separator"
+
+# Well-formed header: each reader returns its field value
+cat > "$HDR_TEST_DIR/well-formed" <<'EOF'
+# name: well-formed
+# description: A well formed snippet
+# args: <domain> [port]
+# abbr: wf wff
+# ---
+echo "$1"
+EOF
+assert_eq "well-formed" "$(_zsh_snip_read_name "$HDR_TEST_DIR/well-formed")" \
+  "test_read_name_returns_value_for_well_formed_header"
+assert_eq "A well formed snippet" "$(_zsh_snip_read_description "$HDR_TEST_DIR/well-formed")" \
+  "test_read_description_returns_value_for_well_formed_header"
+assert_eq "<domain> [port]" "$(_zsh_snip_read_args "$HDR_TEST_DIR/well-formed")" \
+  "test_read_args_returns_value_for_well_formed_header"
+assert_eq "wf wff" "$(_zsh_snip_read_abbr "$HDR_TEST_DIR/well-formed")" \
+  "test_read_abbr_returns_value_for_well_formed_header"
+
+# Header lacking a field: reader returns empty
+cat > "$HDR_TEST_DIR/only-name" <<'EOF'
+# name: only-name
+# ---
+echo hi
+EOF
+assert_eq "" "$(_zsh_snip_read_description "$HDR_TEST_DIR/only-name")" \
+  "test_read_description_returns_empty_when_field_absent"
+assert_eq "" "$(_zsh_snip_read_args "$HDR_TEST_DIR/only-name")" \
+  "test_read_args_returns_empty_when_field_absent"
+assert_eq "" "$(_zsh_snip_read_abbr "$HDR_TEST_DIR/only-name")" \
+  "test_read_abbr_returns_empty_when_field_absent"
+
+# Header-like line AFTER # --- (in command body) must NOT be picked up
+cat > "$HDR_TEST_DIR/field-in-body" <<'EOF'
+# name: field-in-body
+# description: real description
+# args: real args
+# abbr: realabbr
+# ---
+# name: fake-name
+# description: fake description
+# args: fake args
+# abbr: fakeabbr
+echo body
+EOF
+assert_eq "field-in-body" "$(_zsh_snip_read_name "$HDR_TEST_DIR/field-in-body")" \
+  "test_read_name_ignores_name_line_in_body"
+assert_eq "real description" "$(_zsh_snip_read_description "$HDR_TEST_DIR/field-in-body")" \
+  "test_read_description_ignores_description_line_in_body"
+assert_eq "real args" "$(_zsh_snip_read_args "$HDR_TEST_DIR/field-in-body")" \
+  "test_read_args_ignores_args_line_in_body"
+assert_eq "realabbr" "$(_zsh_snip_read_abbr "$HDR_TEST_DIR/field-in-body")" \
+  "test_read_abbr_ignores_abbr_line_in_body"
+
+rm -rf "$HDR_TEST_DIR"
+
 # Test _zsh_snip_get_name_line_number function
 line_num=$(_zsh_snip_get_name_line_number "$TEST_SNIP_DIR/test-shebang")
 assert_eq "2" "$line_num" \

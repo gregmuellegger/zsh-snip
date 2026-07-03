@@ -259,8 +259,8 @@ _zsh_snip_duplicate_file() {
 
 # Read name from a snippet file (only searches header, before # ---)
 _zsh_snip_read_name() {
-  local filepath="$1"
-  sed -n '1,/^# ---$/ { s/^# name: //p; }' "$filepath"
+  _zsh_snip_read_header "$1"
+  print -r -- "$reply_name"
 }
 
 # Get line number of # name: field in snippet file
@@ -301,20 +301,20 @@ _zsh_snip_read_command() {
 
 # Read description from a snippet file (only searches header, before # ---)
 _zsh_snip_read_description() {
-  local filepath="$1"
-  sed -n '1,/^# ---$/ { s/^# description: //p; }' "$filepath"
+  _zsh_snip_read_header "$1"
+  print -r -- "$reply_desc"
 }
 
 # Read args from a snippet file (only searches header, before # ---)
 _zsh_snip_read_args() {
-  local filepath="$1"
-  sed -n '1,/^# ---$/ { s/^# args: //p; }' "$filepath"
+  _zsh_snip_read_header "$1"
+  print -r -- "$reply_args"
 }
 
 # Read abbr from a snippet file (only searches header, before # ---)
 _zsh_snip_read_abbr() {
-  local filepath="$1"
-  sed -n '1,/^# ---$/ { s/^# abbr: //p; }' "$filepath"
+  _zsh_snip_read_header "$1"
+  print -r -- "$reply_abbr"
 }
 
 # Wrap command in anonymous function syntax for execution
@@ -350,6 +350,10 @@ _zsh_snip_read_header() {
   local max_preview="${2:-50}"
   local line
   local in_header=1
+  # Track which fields have been seen so only the FIRST match wins. This keeps
+  # results single-valued even when a file has no "# ---" separator (B4): the
+  # loop would otherwise scan the whole file and let a later duplicate field win.
+  local got_name=0 got_desc=0 got_args=0 got_abbr=0
 
   # Initialize reply variables
   typeset -g reply_name="" reply_desc="" reply_args="" reply_abbr="" reply_preview=""
@@ -363,15 +367,19 @@ _zsh_snip_read_header() {
         continue
       fi
 
-      # Extract header fields (escape # in pattern matching)
-      if [[ "$line" == "# name: "* ]]; then
+      # Extract header fields (escape # in pattern matching, first match wins)
+      if (( ! got_name )) && [[ "$line" == "# name: "* ]]; then
         reply_name="${line#\# name: }"
-      elif [[ "$line" == "# description: "* ]]; then
+        got_name=1
+      elif (( ! got_desc )) && [[ "$line" == "# description: "* ]]; then
         reply_desc="${line#\# description: }"
-      elif [[ "$line" == "# args: "* ]]; then
+        got_desc=1
+      elif (( ! got_args )) && [[ "$line" == "# args: "* ]]; then
         reply_args="${line#\# args: }"
-      elif [[ "$line" == "# abbr: "* ]]; then
+        got_args=1
+      elif (( ! got_abbr )) && [[ "$line" == "# abbr: "* ]]; then
         reply_abbr="${line#\# abbr: }"
+        got_abbr=1
       fi
     else
       # First line after header separator - this is our preview
@@ -435,15 +443,9 @@ _zsh_snip_read_header_full() {
 
 # Read first line of command, truncated for display
 _zsh_snip_read_command_preview() {
-  local filepath="$1"
-  local max_len="${2:-50}"
-  local first_line
-  first_line=$(sed -n '/^# ---$/,$ { /^# ---$/d; p; q; }' "$filepath")
-  if (( ${#first_line} > max_len )); then
-    echo "${first_line[1,$max_len]}..."
-  else
-    echo "$first_line"
-  fi
+  # reply_preview already holds the first content line, truncated to max_len.
+  _zsh_snip_read_header "$1" "${2:-50}"
+  print -r -- "$reply_preview"
 }
 
 # Extract trailing comment from a single-line command (e.g., "git commit # amend" -> "amend")

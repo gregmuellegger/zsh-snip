@@ -261,6 +261,25 @@ test_save_creates_snippet_and_opens_editor() {
 }
 
 # =============================================================================
+# Test: User save reports the "Saved:" confirmation with the user dir path
+# =============================================================================
+test_save_reports_user_saved_message() {
+    log ""
+    log "Testing: User save reports 'Saved:' confirmation message..."
+    setup_test_env
+
+    BUFFER="docker run -it ubuntu"
+    CURSOR=${#BUFFER}
+
+    _zsh_snip_save
+
+    local msg=$(get_last_message)
+    assert_eq "Saved: $ZSH_SNIP_DIR/docker-1" "$msg" "user save reports 'Saved:' with user path"
+
+    teardown_test_env
+}
+
+# =============================================================================
 # Test: Save with trailing comment extracts description
 # =============================================================================
 test_save_extracts_trailing_comment() {
@@ -573,6 +592,30 @@ test_save_local_creates_in_project() {
 }
 
 # =============================================================================
+# Test: Local save reports the "Saved (local):" confirmation with local path
+# =============================================================================
+test_save_local_reports_local_saved_message() {
+    log ""
+    log "Testing: Local save reports 'Saved (local):' confirmation message..."
+    setup_test_env
+
+    local orig_dir="$PWD"
+    cd "$TEST_DIR/project"
+
+    BUFFER="make build"
+    CURSOR=${#BUFFER}
+
+    _zsh_snip_save_local
+
+    cd "$orig_dir"
+
+    local msg=$(get_last_message)
+    assert_eq "Saved (local): $TEST_DIR/project/.zsh-snip/make-1" "$msg" "local save reports 'Saved (local):' with local path"
+
+    teardown_test_env
+}
+
+# =============================================================================
 # Test: Duplicate snippet functionality
 # =============================================================================
 test_duplicate_snippet() {
@@ -793,6 +836,7 @@ log "╚════════════════════════
 log ""
 
 test_save_creates_snippet_and_opens_editor
+test_save_reports_user_saved_message
 test_save_extracts_trailing_comment
 test_save_uses_name_from_comment
 test_editor_rename_moves_file
@@ -804,6 +848,7 @@ test_search_ctrl_e_opens_editor
 test_search_ctrl_d_deletes_snippet
 test_search_alt_x_wraps_function
 test_save_local_creates_in_project
+test_save_local_reports_local_saved_message
 test_duplicate_snippet
 test_duplicate_preserves_args_and_abbr_headers
 test_subdirectory_snippets

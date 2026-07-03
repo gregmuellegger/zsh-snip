@@ -567,9 +567,14 @@ _zsh_snip_apply_rename() {
   return 0
 }
 
-# Save current buffer as snippet (CTRL-X CTRL-S)
-_zsh_snip_save() {
+# Shared save implementation for both user and local scopes.
+# Writes the current buffer as a snippet under <dir>, opens it in the editor,
+# applies any rename the user made there, reloads abbreviations, and reports
+# the result using <label> (e.g. "Saved" or "Saved (local)").
+_zsh_snip_save_to_dir() {
   setopt LOCAL_OPTIONS EXTENDED_GLOB INTERACTIVE_COMMENTS
+  local dir="$1"
+  local label="$2"
   local buffer="$BUFFER"
   local cmd
   local id
@@ -601,8 +606,8 @@ _zsh_snip_save() {
     # Slugify name to ensure valid filename
     comment_name=$(_zsh_snip_slugify "$comment_name")
     # Check if name exists, add number if collision
-    if [[ -e "$ZSH_SNIP_DIR/$comment_name" ]]; then
-      id=$(_zsh_snip_next_id "$ZSH_SNIP_DIR" "$comment_name")
+    if [[ -e "$dir/$comment_name" ]]; then
+      id=$(_zsh_snip_next_id "$dir" "$comment_name")
       default_name="$comment_name-$id"
     else
       default_name="$comment_name"
@@ -612,17 +617,17 @@ _zsh_snip_save() {
     # Slugify to handle edge cases (e.g., commands with special chars)
     cmd=$(_zsh_snip_slugify "$cmd")
     [[ -z "$cmd" ]] && cmd="snippet"
-    id=$(_zsh_snip_next_id "$ZSH_SNIP_DIR" "$cmd")
+    id=$(_zsh_snip_next_id "$dir" "$cmd")
     default_name="$cmd-$id"
   fi
-  filepath="$ZSH_SNIP_DIR/$default_name"
+  filepath="$dir/$default_name"
 
   # Write snippet and open in editor, cursor at start of name value
   _zsh_snip_write "$filepath" "$default_name" "$description" "$command_to_save"
   _zsh_snip_edit_at_name "$filepath"
 
   # Apply any rename the user made in the editor (sanitized, collision-checked)
-  _zsh_snip_apply_rename "$filepath" "$default_name" "$ZSH_SNIP_DIR"
+  _zsh_snip_apply_rename "$filepath" "$default_name" "$dir"
   filepath="$_zsh_snip_rename_path"
 
   _zsh_snip_abbr_reload_if_enabled
@@ -630,8 +635,13 @@ _zsh_snip_save() {
   if [[ -n "$_zsh_snip_rename_msg" ]]; then
     zle -M "$_zsh_snip_rename_msg"
   else
-    zle -M "Saved: $filepath"
+    zle -M "$label: $filepath"
   fi
+}
+
+# Save current buffer as user snippet (CTRL-X CTRL-S)
+_zsh_snip_save() {
+  _zsh_snip_save_to_dir "$ZSH_SNIP_DIR" "Saved"
 }
 
 # Insert text at cursor position in BUFFER
@@ -973,16 +983,7 @@ _zsh_snip_search() {
 
 # Save current buffer as local/project snippet (CTRL-X CTRL-P)
 _zsh_snip_save_local() {
-  setopt LOCAL_OPTIONS EXTENDED_GLOB INTERACTIVE_COMMENTS
-  local buffer="$BUFFER"
-  local cmd
-  local id
-  local default_name
-  local filepath
-  local command_to_save
-  local description
-
-  # Determine local snippet directory
+  # Determine local snippet directory, creating one in $PWD if none exists
   local local_dir=$(_zsh_snip_find_local_dir)
   if [[ -z "$local_dir" ]]; then
     # Create .zsh-snip in current directory
@@ -990,54 +991,7 @@ _zsh_snip_save_local() {
     mkdir -p "$local_dir"
   fi
 
-  # Abort if buffer is empty
-  if [[ -z "${buffer// /}" ]]; then
-    zle -M "zsh-snip: Nothing to save"
-    return 1
-  fi
-
-  # Extract name and description from trailing comment if present (one-liners only)
-  local comment_name=$(_zsh_snip_extract_trailing_name "$buffer")
-  description=$(_zsh_snip_extract_trailing_comment "$buffer")
-  command_to_save="$buffer"
-  if [[ -n "$description" || -n "$comment_name" ]]; then
-    command_to_save="${buffer%\#*}"
-    command_to_save="${command_to_save%%[[:space:]]#}"
-  fi
-
-  # Generate default filename
-  if [[ -n "$comment_name" ]]; then
-    comment_name=$(_zsh_snip_slugify "$comment_name")
-    if [[ -e "$local_dir/$comment_name" ]]; then
-      id=$(_zsh_snip_next_id "$local_dir" "$comment_name")
-      default_name="$comment_name-$id"
-    else
-      default_name="$comment_name"
-    fi
-  else
-    cmd=$(_zsh_snip_extract_command "$buffer")
-    cmd=$(_zsh_snip_slugify "$cmd")
-    [[ -z "$cmd" ]] && cmd="snippet"
-    id=$(_zsh_snip_next_id "$local_dir" "$cmd")
-    default_name="$cmd-$id"
-  fi
-  filepath="$local_dir/$default_name"
-
-  # Write snippet and open in editor
-  _zsh_snip_write "$filepath" "$default_name" "$description" "$command_to_save"
-  _zsh_snip_edit_at_name "$filepath"
-
-  # Apply any rename the user made in the editor (sanitized, collision-checked)
-  _zsh_snip_apply_rename "$filepath" "$default_name" "$local_dir"
-  filepath="$_zsh_snip_rename_path"
-
-  _zsh_snip_abbr_reload_if_enabled
-  zle reset-prompt
-  if [[ -n "$_zsh_snip_rename_msg" ]]; then
-    zle -M "$_zsh_snip_rename_msg"
-  else
-    zle -M "Saved (local): $filepath"
-  fi
+  _zsh_snip_save_to_dir "$local_dir" "Saved (local)"
 }
 
 # =============================================================================

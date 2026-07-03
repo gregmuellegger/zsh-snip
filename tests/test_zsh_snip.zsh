@@ -352,6 +352,42 @@ assert_eq "real args" "$(_zsh_snip_read_args "$HDR_TEST_DIR/field-in-body")" \
 assert_eq "realabbr" "$(_zsh_snip_read_abbr "$HDR_TEST_DIR/field-in-body")" \
   "test_read_abbr_ignores_abbr_line_in_body"
 
+# Header parser must not leak unprefixed reply_* globals into the shell. Call
+# non-subshelled so any leaked global would land in the current scope.
+unset reply_name reply_desc reply_args reply_abbr reply_preview 2>/dev/null
+unset _zsh_snip_reply_name _zsh_snip_reply_desc _zsh_snip_reply_args \
+  _zsh_snip_reply_abbr _zsh_snip_reply_preview 2>/dev/null
+_zsh_snip_read_header "$HDR_TEST_DIR/well-formed"
+[[ -z ${reply_name+x} ]] && leak_check=absent || leak_check=present
+assert_eq "absent" "$leak_check" \
+  "test_read_header_does_not_leak_unprefixed_reply_name"
+[[ -z ${reply_desc+x} ]] && leak_check=absent || leak_check=present
+assert_eq "absent" "$leak_check" \
+  "test_read_header_does_not_leak_unprefixed_reply_desc"
+[[ -z ${reply_args+x} ]] && leak_check=absent || leak_check=present
+assert_eq "absent" "$leak_check" \
+  "test_read_header_does_not_leak_unprefixed_reply_args"
+[[ -z ${reply_abbr+x} ]] && leak_check=absent || leak_check=present
+assert_eq "absent" "$leak_check" \
+  "test_read_header_does_not_leak_unprefixed_reply_abbr"
+[[ -z ${reply_preview+x} ]] && leak_check=absent || leak_check=present
+assert_eq "absent" "$leak_check" \
+  "test_read_header_does_not_leak_unprefixed_reply_preview"
+# The namespaced globals still hold the parsed values.
+assert_eq "well-formed" "$_zsh_snip_reply_name" \
+  "test_read_header_sets_namespaced_reply_name"
+assert_eq "A well formed snippet" "$_zsh_snip_reply_desc" \
+  "test_read_header_sets_namespaced_reply_desc"
+
+# _zsh_snip_read_header_full must not leak its unprefixed reply_command global.
+unset reply_command _zsh_snip_reply_command 2>/dev/null
+_zsh_snip_read_header_full "$HDR_TEST_DIR/well-formed"
+[[ -z ${reply_command+x} ]] && leak_check=absent || leak_check=present
+assert_eq "absent" "$leak_check" \
+  "test_read_header_full_does_not_leak_unprefixed_reply_command"
+assert_eq 'echo "$1"' "$_zsh_snip_reply_command" \
+  "test_read_header_full_sets_namespaced_reply_command"
+
 rm -rf "$HDR_TEST_DIR"
 
 # Test _zsh_snip_get_name_line_number function

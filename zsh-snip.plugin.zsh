@@ -264,7 +264,7 @@ _zsh_snip_duplicate_file() {
 # Read name from a snippet file (only searches header, before # ---)
 _zsh_snip_read_name() {
   _zsh_snip_read_header "$1"
-  print -r -- "$reply_name"
+  print -r -- "$_zsh_snip_reply_name"
 }
 
 # Get line number of # name: field in snippet file
@@ -306,19 +306,19 @@ _zsh_snip_read_command() {
 # Read description from a snippet file (only searches header, before # ---)
 _zsh_snip_read_description() {
   _zsh_snip_read_header "$1"
-  print -r -- "$reply_desc"
+  print -r -- "$_zsh_snip_reply_desc"
 }
 
 # Read args from a snippet file (only searches header, before # ---)
 _zsh_snip_read_args() {
   _zsh_snip_read_header "$1"
-  print -r -- "$reply_args"
+  print -r -- "$_zsh_snip_reply_args"
 }
 
 # Read abbr from a snippet file (only searches header, before # ---)
 _zsh_snip_read_abbr() {
   _zsh_snip_read_header "$1"
-  print -r -- "$reply_abbr"
+  print -r -- "$_zsh_snip_reply_abbr"
 }
 
 # Wrap command in anonymous function syntax for execution
@@ -347,7 +347,7 @@ _zsh_snip_wrap_anon_func() {
 }
 
 # Read header and first line of command in one pass (optimized for listing)
-# Sets reply variables: reply_name, reply_desc, reply_args, reply_abbr, reply_preview
+# Sets reply variables: _zsh_snip_reply_name, _zsh_snip_reply_desc, _zsh_snip_reply_args, _zsh_snip_reply_abbr, _zsh_snip_reply_preview
 # Args: filepath [max_preview_length]
 _zsh_snip_read_header() {
   local filepath="$1"
@@ -360,7 +360,7 @@ _zsh_snip_read_header() {
   local got_name=0 got_desc=0 got_args=0 got_abbr=0
 
   # Initialize reply variables
-  typeset -g reply_name="" reply_desc="" reply_args="" reply_abbr="" reply_preview=""
+  typeset -g _zsh_snip_reply_name="" _zsh_snip_reply_desc="" _zsh_snip_reply_args="" _zsh_snip_reply_abbr="" _zsh_snip_reply_preview=""
 
   # Read file line by line until we get first content line
   while IFS= read -r line; do
@@ -373,24 +373,24 @@ _zsh_snip_read_header() {
 
       # Extract header fields (escape # in pattern matching, first match wins)
       if (( ! got_name )) && [[ "$line" == "# name: "* ]]; then
-        reply_name="${line#\# name: }"
+        _zsh_snip_reply_name="${line#\# name: }"
         got_name=1
       elif (( ! got_desc )) && [[ "$line" == "# description: "* ]]; then
-        reply_desc="${line#\# description: }"
+        _zsh_snip_reply_desc="${line#\# description: }"
         got_desc=1
       elif (( ! got_args )) && [[ "$line" == "# args: "* ]]; then
-        reply_args="${line#\# args: }"
+        _zsh_snip_reply_args="${line#\# args: }"
         got_args=1
       elif (( ! got_abbr )) && [[ "$line" == "# abbr: "* ]]; then
-        reply_abbr="${line#\# abbr: }"
+        _zsh_snip_reply_abbr="${line#\# abbr: }"
         got_abbr=1
       fi
     else
       # First line after header separator - this is our preview
-      reply_preview="$line"
+      _zsh_snip_reply_preview="$line"
       # Truncate if needed
-      if (( ${#reply_preview} > max_preview )); then
-        reply_preview="${reply_preview[1,$max_preview]}..."
+      if (( ${#_zsh_snip_reply_preview} > max_preview )); then
+        _zsh_snip_reply_preview="${_zsh_snip_reply_preview[1,$max_preview]}..."
       fi
       # Got what we need, stop reading
       break
@@ -402,7 +402,7 @@ _zsh_snip_read_header() {
 }
 
 # Read header and full command content in one pass (for abbr loading)
-# Sets reply variables: reply_name, reply_desc, reply_args, reply_abbr, reply_command
+# Sets reply variables: _zsh_snip_reply_name, _zsh_snip_reply_desc, _zsh_snip_reply_args, _zsh_snip_reply_abbr, _zsh_snip_reply_command
 # Args: filepath
 _zsh_snip_read_header_full() {
   local filepath="$1"
@@ -411,7 +411,7 @@ _zsh_snip_read_header_full() {
   local command_lines=()
 
   # Initialize reply variables
-  typeset -g reply_name="" reply_desc="" reply_args="" reply_abbr="" reply_command=""
+  typeset -g _zsh_snip_reply_name="" _zsh_snip_reply_desc="" _zsh_snip_reply_args="" _zsh_snip_reply_abbr="" _zsh_snip_reply_command=""
 
   # Read file line by line
   while IFS= read -r line; do
@@ -424,13 +424,13 @@ _zsh_snip_read_header_full() {
 
       # Extract header fields (escape # in pattern matching)
       if [[ "$line" == "# name: "* ]]; then
-        reply_name="${line#\# name: }"
+        _zsh_snip_reply_name="${line#\# name: }"
       elif [[ "$line" == "# description: "* ]]; then
-        reply_desc="${line#\# description: }"
+        _zsh_snip_reply_desc="${line#\# description: }"
       elif [[ "$line" == "# args: "* ]]; then
-        reply_args="${line#\# args: }"
+        _zsh_snip_reply_args="${line#\# args: }"
       elif [[ "$line" == "# abbr: "* ]]; then
-        reply_abbr="${line#\# abbr: }"
+        _zsh_snip_reply_abbr="${line#\# abbr: }"
       fi
     else
       # Collect command lines
@@ -439,7 +439,7 @@ _zsh_snip_read_header_full() {
   done < "$filepath"
 
   # Join command lines with newlines
-  reply_command="${(pj:\n:)command_lines}"
+  _zsh_snip_reply_command="${(pj:\n:)command_lines}"
 
   # Return success (while loop returns non-zero on EOF which breaks set -e)
   return 0
@@ -447,9 +447,9 @@ _zsh_snip_read_header_full() {
 
 # Read first line of command, truncated for display
 _zsh_snip_read_command_preview() {
-  # reply_preview already holds the first content line, truncated to max_len.
+  # _zsh_snip_reply_preview already holds the first content line, truncated to max_len.
   _zsh_snip_read_header "$1" "${2:-50}"
-  print -r -- "$reply_preview"
+  print -r -- "$_zsh_snip_reply_preview"
 }
 
 # Extract trailing comment from a single-line command (e.g., "git commit # amend" -> "amend")
@@ -811,8 +811,8 @@ _zsh_snip_search() {
         f="${rrest#*$US}"
         [[ "$rscope" == "user" ]] && prefix='~' || prefix='!'
         _zsh_snip_read_header "$f" "$cmd_width"
-        desc="$reply_desc"
-        cmd_preview="$reply_preview"
+        desc="$_zsh_snip_reply_desc"
+        cmd_preview="$_zsh_snip_reply_preview"
         if (( ${#desc} > desc_width )); then
           desc="${desc[1,$((desc_width - 1))]}…"
         fi
@@ -1140,7 +1140,7 @@ _zsh_snip_cli_list() {
       results+=("$name")
     else
       _zsh_snip_read_header "$f"
-      desc="$reply_desc"
+      desc="$_zsh_snip_reply_desc"
       if [[ "$rscope" == "local" ]]; then
         if (( full_path )); then
           display_path="$local_dir"
@@ -1445,11 +1445,11 @@ _zsh_snip_cli_abbr_list() {
       _zsh_snip_read_header "$f"
 
       # Skip if no abbr defined
-      [[ -z "$reply_abbr" ]] && continue
+      [[ -z "$_zsh_snip_reply_abbr" ]] && continue
 
       seen_names[$name]=1
 
-      results+=("${c_name}${name}${c_reset}${US}${c_abbr}${reply_abbr}${c_reset}${US}${c_desc}${reply_desc}${c_reset}")
+      results+=("${c_name}${name}${c_reset}${US}${c_abbr}${_zsh_snip_reply_abbr}${c_reset}${US}${c_desc}${_zsh_snip_reply_desc}${c_reset}")
     done
   fi
 
@@ -1468,9 +1468,9 @@ _zsh_snip_cli_abbr_list() {
       _zsh_snip_read_header "$f"
 
       # Skip if no abbr defined
-      [[ -z "$reply_abbr" ]] && continue
+      [[ -z "$_zsh_snip_reply_abbr" ]] && continue
 
-      results+=("${c_name}${name}${c_reset}${US}${c_abbr}${reply_abbr}${c_reset}${US}${c_desc}${reply_desc}${c_reset}")
+      results+=("${c_name}${name}${c_reset}${US}${c_abbr}${_zsh_snip_reply_abbr}${c_reset}${US}${c_desc}${_zsh_snip_reply_desc}${c_reset}")
     done
   fi
 
@@ -1549,14 +1549,14 @@ _zsh_snip_cli_abbr_load() {
       _zsh_snip_read_header_full "$f"
 
       # Skip if no abbr defined
-      [[ -z "$reply_abbr" ]] && continue
+      [[ -z "$_zsh_snip_reply_abbr" ]] && continue
 
       seen_names[$name]=1
 
       # Register each abbr key (space-separated) and track it for later unloading
-      for abbr_key in ${=reply_abbr}; do
+      for abbr_key in ${=_zsh_snip_reply_abbr}; do
         # Use session abbreviations (-S) to avoid polluting zsh-abbr's config
-        abbr -S "$abbr_key=$reply_command" >/dev/null
+        abbr -S "$abbr_key=$_zsh_snip_reply_command" >/dev/null
         _ZSH_SNIP_LOCAL_ABBRS+=("$abbr_key")
       done
     done
@@ -1579,11 +1579,11 @@ _zsh_snip_cli_abbr_load() {
       _zsh_snip_read_header_full "$f"
 
       # Skip if no abbr defined
-      [[ -z "$reply_abbr" ]] && continue
+      [[ -z "$_zsh_snip_reply_abbr" ]] && continue
 
       # Register each abbr key (space-separated) and track it for later unloading
-      for abbr_key in ${=reply_abbr}; do
-        abbr -S "$abbr_key=$reply_command" >/dev/null
+      for abbr_key in ${=_zsh_snip_reply_abbr}; do
+        abbr -S "$abbr_key=$_zsh_snip_reply_command" >/dev/null
         _ZSH_SNIP_USER_ABBRS+=("$abbr_key")
       done
     done
